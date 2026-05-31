@@ -72,7 +72,51 @@ class PagerPageHolder(
     private var loadJob: Job? = null
 
     init {
-        loadJob = scope.launch { loadPageAndProcessStatus() }
+            binding.viewer.setOnLongClickListener {
+            val context = binding.viewer.context
+            val prefs = context.getSharedPreferences("OcrPrefs", android.content.Context.MODE_PRIVATE)
+            val apiKey = prefs.getString("gemini_key", "") ?: ""
+
+            if (apiKey.isEmpty()) {
+                val input = EditText(context)
+                input.hint = "Paste Gemini API Key here"
+                AlertDialog.Builder(context)
+                    .setTitle("Enter Gemini API Key")
+                    .setView(input)
+                    .setPositiveButton("Save") { _, _ ->
+                        prefs.edit().putString("gemini_key", input.text.toString()).apply()
+                        Toast.makeText(context, "Key Saved! Long-press again to translate.", Toast.LENGTH_SHORT).show()
+                    }.show()
+                return@setOnLongClickListener true
+            }
+
+            val chapterCacheDir = this.page?.chapter?.downloadDir
+
+            if (chapterCacheDir == null || !chapterCacheDir.exists()) {
+                Toast.makeText(context, "Please download this chapter first to use Batch Translation!", Toast.LENGTH_LONG).show()
+                return@setOnLongClickListener true
+            }
+
+            Toast.makeText(context, "Translating Chapter via Gemini...", Toast.LENGTH_SHORT).show()
+
+            binding.viewer.findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
+                val engine = MangaOcrEngine(context, apiKey)
+                val translatedChapterMap = engine.processDownloadedChapter(chapterCacheDir)
+
+                withContext(Dispatchers.Main) {
+                    val currentPageData = translatedChapterMap[page?.index ?: 0]
+                    val displayResult = currentPageData?.translatedBlocks?.joinToString("\n") ?: "No text found."
+                    
+                    AlertDialog.Builder(context)
+                        .setTitle("Gemini Translation Result")
+                        .setMessage(displayResult)
+                        .setPositiveButton("Close", null)
+                        .show()
+                }
+            }
+            true
+                }
+                
     }
 
     /**
