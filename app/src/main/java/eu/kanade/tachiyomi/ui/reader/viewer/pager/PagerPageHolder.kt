@@ -3,8 +3,12 @@ package eu.kanade.tachiyomi.ui.reader.viewer.pager
 import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.content.Context
+import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.lifecycle.findViewTreeLifecycleOwner
@@ -48,100 +52,87 @@ class PagerPageHolder(
     val page: ReaderPage,
 ) : ReaderPageImageView(readerThemedContext), ViewPagerAdapter.PositionableView {
 
-    /**
-     * Item that identifies this view. Needed by the adapter to not recreate views.
-     */
     override val item
         get() = page
 
-    /**
-     * Loading progress bar to indicate the current progress.
-     */
     private var progressIndicator: ReaderProgressIndicator? = null
-
-    /**
-     * Error layout to show when the image fails to load.
-     */
     private var errorLayout: ReaderErrorBinding? = null
-
     private val scope = MainScope()
-
-    /**
-     * Job for loading the page and processing changes to the page's status.
-     */
     private var loadJob: Job? = null
 
     init {
-        // We set the long click listener directly on 'this' (the ReaderPageImageView)
-        this.setOnLongClickListener {
-            val currentContext = this.context
-            val prefs = currentContext.getSharedPreferences("OcrPrefs", Context.MODE_PRIVATE)
-            val apiKey = prefs.getString("gemini_key", "") ?: ""
-
-            if (apiKey.isEmpty()) {
-                val input = EditText(currentContext)
-                input.hint = "Paste Gemini API Key here"
-                AlertDialog.Builder(currentContext)
-                    .setTitle("Enter Gemini API Key")
-                    .setView(input)
-                    .setPositiveButton("Save") { _, _ ->
-                        prefs.edit().putString("gemini_key", input.text.toString()).apply()
-                        Toast.makeText(
-                            currentContext,
-                            "Key Saved! Long-press again to translate.",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }.show()
-                return@setOnLongClickListener true
+        val translateBtn = Button(context).apply {
+            text = "AI Translate"
+            alpha = 0.8f
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                gravity = Gravity.BOTTOM or Gravity.START
+                bottomMargin = 150
+                leftMargin = 50
             }
 
-            // In Mihon, the actual downloaded image file for the current page is stored as the stream.
-            // Because we don't have direct access to the chapter folder, we will pass the parent directory
-            // of the currently loaded image file to the engine.
-            val pageStreamFile = page.stream?.invoke()
-            val fileDir = try {
-                // This is a workaround to get the folder path. It only works if the file is downloaded locally.
-                val field = pageStreamFile?.javaClass?.getDeclaredField("file")
-                field?.isAccessible = true
-                val file = field?.get(pageStreamFile) as? File
-                file?.parentFile
-            } catch (e: Exception) {
-                null
-            }
+            setOnClickListener {
+                val currentContext = this.context
+                val prefs = currentContext.getSharedPreferences("OcrPrefs", Context.MODE_PRIVATE)
+                val apiKey = prefs.getString("gemini_key", "") ?: ""
 
-            if (fileDir == null || !fileDir.exists()) {
-                Toast.makeText(
-                    currentContext,
-                    "Please download this chapter fully first to use Batch Translation!",
-                    Toast.LENGTH_LONG,
-                ).show()
-                return@setOnLongClickListener true
-            }
-
-            Toast.makeText(currentContext, "Translating Chapter via Gemini...", Toast.LENGTH_SHORT).show()
-
-            this.findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
-                val engine = MangaOcrEngine(currentContext, apiKey)
-                val translatedChapterMap = engine.processDownloadedChapter(fileDir)
-
-                withContext(Dispatchers.Main) {
-                    val currentPageData = translatedChapterMap[page.index]
-                    val displayResult = currentPageData?.translatedBlocks?.joinToString("\n") ?: "No text found."
-
+                if (apiKey.isEmpty()) {
+                    val input = EditText(currentContext)
+                    input.hint = "Paste Gemini API Key here"
                     AlertDialog.Builder(currentContext)
-                        .setTitle("Gemini Translation Result")
-                        .setMessage(displayResult)
-                        .setPositiveButton("Close", null)
-                        .show()
+                        .setTitle("Enter Gemini API Key")
+                        .setView(input)
+                        .setPositiveButton("Save") { _, _ ->
+                            prefs.edit().putString("gemini_key", input.text.toString()).apply()
+                            Toast.makeText(currentContext, "Key Saved! Tap again.", Toast.LENGTH_SHORT).show()
+                        }.show()
+                    return@setOnClickListener
+                }
+
+                val pageStreamFile = page.stream?.invoke()
+                val fileDir = try {
+                    val field = pageStreamFile?.javaClass?.getDeclaredField("file")
+                    field?.isAccessible = true
+                    val file = field?.get(pageStreamFile) as? File
+                    file?.parentFile
+                } catch (e: Exception) {
+                    null
+                }
+
+                if (fileDir == null || !fileDir.exists()) {
+                    Toast.makeText(currentContext, "Download chapter fully first!", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+
+                Toast.makeText(currentContext, "Translating via Gemini...", Toast.LENGTH_SHORT).show()
+
+                this@PagerPageHolder.findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
+                    val engine = MangaOcrEngine(currentContext, apiKey)
+                    val translatedChapterMap = engine.processDownloadedChapter(fileDir)
+
+                    withContext(Dispatchers.Main) {
+                        val currentPageData = translatedChapterMap[page.index]
+                        val displayResult = currentPageData?.translatedBlocks?.joinToString("\n") ?: "No text found."
+
+                        AlertDialog.Builder(currentContext)
+                            .setTitle("Gemini Translation Result")
+                            .setMessage(displayResult)
+                            .setPositiveButton("Close", null)
+                            .show()
+                    }
                 }
             }
-            true
         }
+        addView(translateBtn)
     }
 
-    /**
-     * Called when this view is detached from the window. Unsubscribes any active subscription.
-     */
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        loadJob = scope.launch { loadPageAndProcessStatus() }
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
@@ -156,13 +147,6 @@ class PagerPageHolder(
         }
     }
 
-    /**
-     * Loads the page and processes changes to the page's status.
-     *
-     * Returns immediately if the page has no PageLoader.
-     * Otherwise, this function does not return. It will continue to process status changes until
-     * the Job is cancelled.
-     */
     private suspend fun loadPageAndProcessStatus() {
         val loader = page.chapter.pageLoader ?: return
 
@@ -187,39 +171,26 @@ class PagerPageHolder(
         }
     }
 
-    /**
-     * Called when the page is queued.
-     */
     private fun setQueued() {
         initProgressIndicator()
         progressIndicator?.show()
         removeErrorLayout()
     }
 
-    /**
-     * Called when the page is loading.
-     */
     private fun setLoading() {
         initProgressIndicator()
         progressIndicator?.show()
         removeErrorLayout()
     }
 
-    /**
-     * Called when the page is downloading.
-     */
     private fun setDownloading() {
         initProgressIndicator()
         progressIndicator?.show()
         removeErrorLayout()
     }
 
-    /**
-     * Called when the page is ready.
-     */
     private suspend fun setImage() {
         progressIndicator?.setProgress(0)
-
         val streamFn = page.stream ?: return
 
         try {
@@ -262,22 +233,17 @@ class PagerPageHolder(
         if (viewer.config.dualPageRotateToFit) {
             return rotateDualPage(imageSource)
         }
-
         if (!viewer.config.dualPageSplit) {
             return imageSource
         }
-
         if (page is InsertPage) {
             return splitInHalf(imageSource)
         }
-
         val isDoublePage = ImageUtil.isWideImage(imageSource)
         if (!isDoublePage) {
             return imageSource
         }
-
         onPageSplit(page)
-
         return splitInHalf(imageSource)
     }
 
@@ -306,7 +272,6 @@ class PagerPageHolder(
                 ImageUtil.Side.LEFT -> ImageUtil.Side.RIGHT
             }
         }
-
         return ImageUtil.splitInHalf(imageSource, side)
     }
 
@@ -315,9 +280,6 @@ class PagerPageHolder(
         viewer.onPageSplit(page, newPage)
     }
 
-    /**
-     * Called when the page has an error.
-     */
     private fun setError(error: Throwable?) {
         progressIndicator?.hide()
         showErrorLayout(error)
@@ -328,17 +290,11 @@ class PagerPageHolder(
         progressIndicator?.hide()
     }
 
-    /**
-     * Called when an image fails to decode.
-     */
     override fun onImageLoadError(error: Throwable?) {
         super.onImageLoadError(error)
         setError(error)
     }
 
-    /**
-     * Called when an image is zoomed in/out.
-     */
     override fun onScaleChanged(newScale: Float) {
         super.onScaleChanged(newScale)
         viewer.activity.hideMenu()
@@ -360,7 +316,6 @@ class PagerPageHolder(
                 errorLayout?.actionOpenInWebView?.viewer = viewer
                 errorLayout?.actionOpenInWebView?.setOnClickListener {
                     val sourceId = viewer.activity.viewModel.manga?.source
-
                     val intent = WebViewActivity.newIntent(context, imageUrl, sourceId)
                     context.startActivity(intent)
                 }
@@ -374,9 +329,6 @@ class PagerPageHolder(
         return errorLayout!!
     }
 
-    /**
-     * Removes the decode error layout from the holder, if found.
-     */
     private fun removeErrorLayout() {
         errorLayout?.root?.isVisible = false
         errorLayout = null
