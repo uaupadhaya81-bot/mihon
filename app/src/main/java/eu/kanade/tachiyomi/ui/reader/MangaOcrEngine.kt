@@ -1,8 +1,8 @@
 package eu.kanade.tachiyomi.ui.reader
 
-import android.content.Context
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -26,13 +26,13 @@ class MangaOcrEngine(
         try {
             // Initialize the ONNX Environment and load our new PP-OCRv5 brains from assets
             ortEnv = OrtEnvironment.getEnvironment()
-            
+
             val detModelBytes = context.assets.open("ch_PP-OCRv5_det_infer.onnx").readBytes()
             detSession = ortEnv?.createSession(detModelBytes, OrtSession.SessionOptions())
-            
+
             val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.onnx").readBytes()
             recSession = ortEnv?.createSession(recModelBytes, OrtSession.SessionOptions())
-            
+
             // Load the Japanese/Chinese character dictionary file
             dictionary = context.assets.open("ppocr_keys_v1.txt").bufferedReader().readLines()
         } catch (e: Exception) {
@@ -49,8 +49,8 @@ class MangaOcrEngine(
         // 🧪 TEMPORARY LIVE TEST DATA
         // This ensures your ONNX initialization and Gemini live cloud connection work perfectly.
         val dummyJapaneseText = listOf(
-            "お前はもう死んでいる", 
-            "何！？"
+            "お前はもう死んでいる",
+            "何！？",
         )
 
         // ☁️ Build the batch request and fire it straight to Gemini 3.1 Flash-Lite
@@ -70,7 +70,9 @@ class MangaOcrEngine(
      */
     private fun buildMegaPrompt(japaneseBlocks: List<String>): String {
         val sb = StringBuilder()
-        sb.append("You are an elite manga translator. Translate the following manga Japanese text blocks into natural English. Keep each block answer separated:\n\n")
+        sb.append(
+            "You are an elite manga translator. Translate the following manga Japanese text blocks into natural English. Keep each block answer separated:\n\n",
+        )
         japaneseBlocks.forEachIndexed { index, text ->
             sb.append("Block ${index + 1}: $text\n")
         }
@@ -83,7 +85,10 @@ class MangaOcrEngine(
     private fun sendToGemini(prompt: String): String {
         try {
             // Hooking into the ultra-fast Gemini Flash pipeline
-            val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey")
+            val url =
+                URL(
+                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey",
+                )
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json")
