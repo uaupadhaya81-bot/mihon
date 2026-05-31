@@ -140,23 +140,39 @@ class ReaderActivity : BaseActivity() {
     var isScrollingThroughPages = false
         private set
 
-    // --- NEW: GALLERY LAUNCHER ---
-    private val galleryLauncher =
-        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
-            if (uri != null) {
+    // --- 📥 REALTIME GALLERY IMAGE LAUNCHER PIPELINE ---
+    private val galleryLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            try {
                 val inputStream = contentResolver.openInputStream(uri)
                 val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                
+                val prefs = getSharedPreferences("OcrPrefs", android.content.Context.MODE_PRIVATE)
+                val apiKey = prefs.getString("gemini_key", "") ?: ""
 
-                lifecycleScope.launch {
-                    // The ONNX engine processing will go here in the next step!
-                    android.widget.Toast.makeText(
-                        this@ReaderActivity,
-                        "Image selected! Math engine coming next.",
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
+                if (apiKey.isNotEmpty()) {
+                    android.widget.Toast.makeText(this, "Scanning image & translating...", android.widget.Toast.LENGTH_LONG).show()
+                    
+                    lifecycleScope.launch {
+                        val engine = MangaOcrEngine(this@ReaderActivity, apiKey)
+                        val liveResult = engine.processSingleImage(bitmap)
+                        
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            android.app.AlertDialog.Builder(this@ReaderActivity)
+                                .setTitle("Gemini Translation Result")
+                                .setMessage(liveResult)
+                                .setPositiveButton("Close", null)
+                                .show()
+                        }
+                    }
+                } else {
+                    android.widget.Toast.makeText(this, "Error: Missing API key context.", android.widget.Toast.LENGTH_SHORT).show()
                 }
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(this, "File read error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
             }
         }
+    }
 
     /**
      * Called when the activity is created. Initializes the presenter and configuration.
@@ -263,7 +279,7 @@ class ReaderActivity : BaseActivity() {
             }
             .launchIn(lifecycleScope)
 
-        // --- START OF AI TRANSLATE BUTTON OVERLAY ---
+        // --- START OF AI TRANSLATE BUTTON OVERLAY WITH PREFERENCE MANAGEMENT ---
         val translateBtn = android.widget.Button(this).apply {
             text = "AI Translate"
             setTextColor(android.graphics.Color.WHITE)
@@ -271,8 +287,27 @@ class ReaderActivity : BaseActivity() {
             setPadding(25, 12, 25, 12)
 
             setOnClickListener {
-                // This tells Android to open the gallery and show only images
-                galleryLauncher.launch("image/*")
+                val prefs = getSharedPreferences("OcrPrefs", android.content.Context.MODE_PRIVATE)
+                val apiKey = prefs.getString("gemini_key", "") ?: ""
+
+                if (apiKey.isEmpty()) {
+                    val input = android.widget.EditText(this@ReaderActivity)
+                    input.hint = "Paste Gemini API Key here"
+                    android.app.AlertDialog.Builder(this@ReaderActivity)
+                        .setTitle("Enter Gemini API Key")
+                        .setView(input)
+                        .setPositiveButton("Save") { _, _ ->
+                            prefs.edit().putString("gemini_key", input.text.toString().trim()).apply()
+                            android.widget.Toast.makeText(
+                                this@ReaderActivity,
+                                "Key Saved! Tap again to upload.",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        }.show()
+                } else {
+                    // Stored credentials verified -> Request file picker launch intent
+                    galleryLauncher.launch("image/*")
+                }
             }
         }
 
@@ -564,7 +599,6 @@ class ReaderActivity : BaseActivity() {
         val newViewer = ReadingMode.toViewer(viewModel.getMangaReadingMode(), this)
 
         if (window.sharedElementEnterTransition is MaterialContainerTransform) {
-            // Wait until transition is complete to avoid crash on API 26
             window.sharedElementEnterTransition.doOnEnd {
                 setOrientation(viewModel.getMangaOrientation())
             }
@@ -572,7 +606,6 @@ class ReaderActivity : BaseActivity() {
             setOrientation(viewModel.getMangaOrientation())
         }
 
-        // Destroy previous viewer if there was one
         if (prevViewer != null) {
             prevViewer.destroy()
             binding.viewerContainer.removeAllViews()
@@ -634,11 +667,6 @@ class ReaderActivity : BaseActivity() {
         }
     }
 
-    /**
-     * Called from the presenter whenever a new [viewerChapters] have been set. It delegates the
-     * method to the current viewer, but also set the subtitle on the toolbar, and
-     * hides or disables the reader prev/next buttons if there's a prev or next chapter
-     */
     @SuppressLint("RestrictedApi")
     private fun setChapters(viewerChapters: ViewerChapters) {
         binding.readerContainer.removeView(loadingIndicator)
@@ -651,22 +679,12 @@ class ReaderActivity : BaseActivity() {
         }
     }
 
-    /**
-     * Called from the presenter if the initial load couldn't load the pages of the chapter. In
-     * this case the activity is closed and a toast is shown to the user.
-     */
     private fun setInitialChapterError(error: Throwable) {
         logcat(LogPriority.ERROR, error)
         finish()
         toast(error.message)
     }
 
-    /**
-     * Called from the presenter whenever it's loading the next or previous chapter. It shows or
-     * dismisses a non-cancellable dialog to prevent user interaction according to the value of
-     * [show]. This is only used when the next/previous buttons on the toolbar are clicked; the
-     * other cases are handled with chapter transitions on the viewers and chapter preloading.
-     */
     private fun setProgressDialog(show: Boolean) {
         if (show) {
             viewModel.showLoadingDialog()
@@ -675,10 +693,6 @@ class ReaderActivity : BaseActivity() {
         }
     }
 
-    /**
-     * Moves the viewer to the given page [index]. It does nothing if the viewer is null or the
-     * page is not found.
-     */
     private fun moveToPageIndex(index: Int) {
         val viewer = viewModel.state.value.viewer ?: return
         val currentChapter = viewModel.state.value.currentChapter ?: return
@@ -686,10 +700,6 @@ class ReaderActivity : BaseActivity() {
         viewer.moveToPage(page)
     }
 
-    /**
-     * Tells the presenter to load the next chapter and mark it as active. The progress dialog
-     * should be automatically shown.
-     */
     private fun loadNextChapter() {
         lifecycleScope.launch {
             viewModel.loadNextChapter()
@@ -697,10 +707,6 @@ class ReaderActivity : BaseActivity() {
         }
     }
 
-    /**
-     * Tells the presenter to load the previous chapter and mark it as active. The progress dialog
-     * should be automatically shown.
-     */
     private fun loadPreviousChapter() {
         lifecycleScope.launch {
             viewModel.loadPreviousChapter()
@@ -708,60 +714,34 @@ class ReaderActivity : BaseActivity() {
         }
     }
 
-    /**
-     * Called from the viewer whenever a [page] is marked as active. It updates the values of the
-     * bottom menu and delegates the change to the presenter.
-     */
     fun onPageSelected(page: ReaderPage) {
         viewModel.onPageSelected(page)
     }
 
-    /**
-     * Called from the viewer whenever a [page] is long clicked. A bottom sheet with a list of
-     * actions to perform is shown.
-     */
     fun onPageLongTap(page: ReaderPage) {
         viewModel.openPageDialog(page)
     }
 
-    /**
-     * Called from the viewer when the given [chapter] should be preloaded. It should be called when
-     * the viewer is reaching the beginning or end of a chapter or the transition page is active.
-     */
     fun requestPreloadChapter(chapter: ReaderChapter) {
         lifecycleScope.launchIO { viewModel.preload(chapter) }
     }
 
-    /**
-     * Called from the viewer to toggle the visibility of the menu. It's implemented on the
-     * viewer because each one implements its own touch and key events.
-     */
     fun toggleMenu() {
         setMenuVisibility(!viewModel.state.value.menuVisible)
     }
 
-    /**
-     * Called from the viewer to show the menu.
-     */
     fun showMenu() {
         if (!viewModel.state.value.menuVisible) {
             setMenuVisibility(true)
         }
     }
 
-    /**
-     * Called from the viewer to hide the menu.
-     */
     fun hideMenu() {
         if (viewModel.state.value.menuVisible) {
             setMenuVisibility(false)
         }
     }
 
-    /**
-     * Called from the presenter when a page is ready to be shared. It shows Android's default
-     * sharing tool.
-     */
     private fun onShareImageResult(uri: Uri, page: ReaderPage) {
         val manga = viewModel.manga ?: return
         val chapter = page.chapter.chapter
@@ -779,10 +759,6 @@ class ReaderActivity : BaseActivity() {
         clipboardManager.setPrimaryClip(clipData)
     }
 
-    /**
-     * Called from the presenter when a page is saved or fails. It shows a message or logs the
-     * event depending on the [result].
-     */
     private fun onSaveImageResult(result: ReaderViewModel.SaveImageResult) {
         when (result) {
             is ReaderViewModel.SaveImageResult.Success -> {
@@ -794,10 +770,6 @@ class ReaderActivity : BaseActivity() {
         }
     }
 
-    /**
-     * Called from the presenter when a page is set as cover or fails. It shows a different message
-     * depending on the [result].
-     */
     private fun onSetAsCoverResult(result: ReaderViewModel.SetAsCoverResult) {
         toast(
             when (result) {
@@ -808,9 +780,6 @@ class ReaderActivity : BaseActivity() {
         )
     }
 
-    /**
-     * Forces the user preferred [orientation] on the activity.
-     */
     private fun setOrientation(orientation: Int) {
         val newOrientation = ReaderOrientation.fromPreference(orientation)
         if (newOrientation.flag != requestedOrientation) {
@@ -818,9 +787,6 @@ class ReaderActivity : BaseActivity() {
         }
     }
 
-    /**
-     * Updates viewer inset depending on fullscreen reader preferences.
-     */
     private fun updateViewerInset(fullscreen: Boolean, drawUnderCutout: Boolean) {
         if (!::binding.isInitialized) return
         val view = binding.viewerContainer
@@ -847,9 +813,6 @@ class ReaderActivity : BaseActivity() {
         setPadding(insets.left, insets.top, insets.right, insets.bottom)
     }
 
-    /**
-     * Class that handles the user preferences of the reader.
-     */
     private inner class ReaderConfig {
 
         private fun getCombinedPaint(grayscale: Boolean, invertedColors: Boolean): Paint {
@@ -878,9 +841,6 @@ class ReaderActivity : BaseActivity() {
 
         private val grayBackgroundColor = Color.rgb(0x20, 0x21, 0x25)
 
-        /*
-         * Initializes the reader subscriptions.
-         */
         init {
             readerPreferences.readerTheme.changes()
                 .onEach { theme ->
@@ -926,9 +886,6 @@ class ReaderActivity : BaseActivity() {
                 .launchIn(lifecycleScope)
         }
 
-        /**
-         * Picks background color for [ReaderActivity] based on light/dark theme preference
-         */
         private fun automaticBackgroundColor(): Int {
             return if (baseContext.isNightMode()) {
                 grayBackgroundColor
@@ -937,9 +894,6 @@ class ReaderActivity : BaseActivity() {
             }
         }
 
-        /**
-         * Sets the display profile to [path].
-         */
         private fun setDisplayProfile(path: String) {
             val file = UniFile.fromUri(baseContext, path.toUri())
             if (file != null && file.exists()) {
@@ -956,9 +910,6 @@ class ReaderActivity : BaseActivity() {
             }
         }
 
-        /**
-         * Sets the keep screen on mode according to [enabled].
-         */
         private fun setKeepScreenOn(enabled: Boolean) {
             if (enabled) {
                 window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -967,9 +918,6 @@ class ReaderActivity : BaseActivity() {
             }
         }
 
-        /**
-         * Sets the custom brightness overlay according to [enabled].
-         */
         private fun setCustomBrightness(enabled: Boolean) {
             if (enabled) {
                 readerPreferences.customBrightnessValue.changes()
@@ -981,14 +929,7 @@ class ReaderActivity : BaseActivity() {
             }
         }
 
-        /**
-         * Sets the brightness of the screen. Range is [-75, 100].
-         * From -75 to -1 a semi-transparent black view is overlaid with the minimum brightness.
-         * From 1 to 100 it sets that value as brightness.
-         * 0 sets system brightness and hides the overlay.
-         */
         private fun setCustomBrightnessValue(value: Int) {
-            // Calculate and set reader brightness.
             val readerBrightness = when {
                 value > 0 -> {
                     value / 100f
