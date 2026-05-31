@@ -244,6 +244,64 @@ class ReaderActivity : BaseActivity() {
                 }
             }
             .launchIn(lifecycleScope)
+
+
+                // --- START OF AI TRANSLATE BUTTON OVERLAY ---
+        val translateBtn = android.widget.Button(this).apply {
+            text = "AI Translate"
+            setTextColor(android.graphics.Color.WHITE)
+            setBackgroundColor(android.graphics.Color.parseColor("#1E90FF"))
+            setPadding(25, 12, 25, 12)
+            
+            setOnClickListener {
+                val prefs = getSharedPreferences("OcrPrefs", android.content.Context.MODE_PRIVATE)
+                val apiKey = prefs.getString("gemini_key", "") ?: ""
+
+                if (apiKey.isEmpty()) {
+                    val input = android.widget.EditText(this@ReaderActivity)
+                    input.hint = "Paste Gemini API Key here"
+                    android.app.AlertDialog.Builder(this@ReaderActivity)
+                        .setTitle("Enter Gemini API Key")
+                        .setView(input)
+                        .setPositiveButton("Save") { _, _ ->
+                            prefs.edit().putString("gemini_key", input.text.toString()).apply()
+                            android.widget.Toast.makeText(this@ReaderActivity, "Key Saved! Tap again.", android.widget.Toast.LENGTH_SHORT).show()
+                        }.show()
+                    return@setOnClickListener
+                }
+
+                android.widget.Toast.makeText(this@ReaderActivity, "Translating via Gemini...", android.widget.Toast.LENGTH_SHORT).show()
+
+                androidx.lifecycle.lifecycleScope.launch {
+                    // For Phase 1 testing, we pass a dummy file.
+                    val engine = MangaOcrEngine(this@ReaderActivity, apiKey)
+                    val translatedChapterMap = engine.processDownloadedChapter(java.io.File(""))
+
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        val displayResult = translatedChapterMap[0]?.translatedBlocks?.joinToString("\n") ?: "No text found."
+
+                        android.app.AlertDialog.Builder(this@ReaderActivity)
+                            .setTitle("Gemini Translation Result")
+                            .setMessage(displayResult)
+                            .setPositiveButton("Close", null)
+                            .show()
+                    }
+                }
+            }
+        }
+
+        val overlayParams = android.widget.FrameLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.START
+            bottomMargin = 150
+            leftMargin = 50
+        }
+        
+        window.addContentView(translateBtn, overlayParams)
+        // --- END OF AI TRANSLATE BUTTON OVERLAY ---
+        
     }
 
     private fun ReaderActivityBinding.setComposeOverlay(): Unit = composeOverlay.setComposeContent {
