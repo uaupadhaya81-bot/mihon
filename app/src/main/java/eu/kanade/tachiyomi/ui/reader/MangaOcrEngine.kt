@@ -38,13 +38,10 @@ class MangaOcrEngine(private val context: Context, private val apiKey: String) {
 
     suspend fun processDownloadedChapter(chapterDir: File): Map<Int, PageData> = withContext(Dispatchers.Default) {
         val chapterTranslationMap = mutableMapOf<Int, PageData>()
+        val extensions = setOf("jpg", "jpeg", "png", "webp")
         
-        val imageFiles = chapterDir.listFiles { file -> 
-            file.isFile && (
-                file.extension.equals("jpg", true) || 
-                file.extension.equals("png", true) || 
-                file.extension.equals("webp", true)
-            )
+        val imageFiles = chapterDir.listFiles { file ->
+            file.isFile && file.extension.lowercase() in extensions
         }?.sortedBy { it.name } ?: return@withContext emptyMap()
 
         val compiledTextPrompt = StringBuilder()
@@ -63,8 +60,8 @@ class MangaOcrEngine(private val context: Context, private val apiKey: String) {
             }
             compiledTextPrompt.append("\n")
 
-            bitmap.recycle() 
-            System.gc() 
+            bitmap.recycle()
+            System.gc()
         }
 
         if (compiledTextPrompt.isNotBlank() && apiKey.isNotBlank()) {
