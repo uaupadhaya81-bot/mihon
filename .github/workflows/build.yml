@@ -61,14 +61,12 @@ jobs:
       - name: Build app
         run: ./gradlew assembleRelease -Pinclude-telemetry -Penable-updater
 
-      - name: Upload APK
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: arm64-v8a-${{ github.sha }}
-          path: app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk
+      - name: Build app
+        run: ./gradlew assembleDebug
 
-      - name: Upload mapping
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      - name: Upload APK
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: mapping-${{ github.sha }}
-          path: app/build/outputs/mapping/release
+          name: debug-apk-${{ github.sha }}
+          path: app/build/outputs/apk/**/*.apk
+          
