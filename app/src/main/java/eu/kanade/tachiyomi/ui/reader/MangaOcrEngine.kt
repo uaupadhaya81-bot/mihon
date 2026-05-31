@@ -25,7 +25,12 @@ class MangaOcrEngine(private val context: Context, private val apiKey: String) {
     private val client = OkHttpClient()
 
     data class TextBlock(val text: String, val x: Float, val y: Float, val width: Float, val height: Float)
-    data class PageData(val pageIndex: Int, val blocks: List<TextBlock>, var translatedBlocks: List<String> = emptyList())
+    
+    data class PageData(
+        val pageIndex: Int,
+        val blocks: List<TextBlock>,
+        var translatedBlocks: List<String> = emptyList(),
+    )
 
     init {
         try {
