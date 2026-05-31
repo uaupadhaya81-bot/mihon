@@ -1,10 +1,10 @@
 package eu.kanade.tachiyomi.ui.reader
 
-import android.content.Context
-import android.graphics.Bitmap
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import android.content.Context
+import android.graphics.Bitmap
 import eu.kanade.tachiyomi.ui.reader.utils.DbNetMath
 import eu.kanade.tachiyomi.ui.reader.utils.OcrUtils
 import kotlinx.coroutines.Dispatchers
@@ -29,13 +29,13 @@ class MangaOcrEngine(
     init {
         try {
             ortEnv = OrtEnvironment.getEnvironment()
-            
+
             val detModelBytes = context.assets.open("ch_PP-OCRv5_det_infer.onnx").readBytes()
             detSession = ortEnv?.createSession(detModelBytes, OrtSession.SessionOptions())
-            
+
             val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.onnx").readBytes()
             recSession = ortEnv?.createSession(recModelBytes, OrtSession.SessionOptions())
-            
+
             dictionary = context.assets.open("ppocr_keys_v1.txt").bufferedReader().readLines()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -53,7 +53,7 @@ class MangaOcrEngine(
             // 2. TENSOR CREATION
             val floatBuffer = OcrUtils.bitmapToFloatBuffer(scaledBitmap)
             val shape = longArrayOf(1, 3, scaledBitmap.height.toLong(), scaledBitmap.width.toLong())
-            
+
             var detW = scaledBitmap.width
             var detH = scaledBitmap.height
             var flatProbabilities = FloatArray(0)
@@ -61,7 +61,7 @@ class MangaOcrEngine(
             OnnxTensor.createTensor(ortEnv, floatBuffer, shape).use { tensor ->
                 val inputName = detSession?.inputNames?.iterator()?.next()
                 val detResults = detSession?.run(Collections.singletonMap(inputName, tensor))
-                
+
                 detResults?.use { results ->
                     // Safely extract the raw value without triggering getShape()
                     val detOutputTensor = results.iterator().next().value as? OnnxTensor
@@ -75,7 +75,7 @@ class MangaOcrEngine(
                                 if (channel != null && channel.isNotEmpty()) {
                                     detH = channel.size
                                     detW = (channel[0] as? FloatArray)?.size ?: 0
-                                    
+
                                     flatProbabilities = FloatArray(detW * detH)
                                     var idx = 0
                                     for (y in 0 until detH) {
@@ -108,17 +108,19 @@ class MangaOcrEngine(
 
             for (box in boxes) {
                 val croppedBubble = OcrUtils.cropBubble(bitmap, box, scaleX, scaleY)
-                
+
                 val recHeight = 48
-                val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight).toInt().coerceAtLeast(1)
+                val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight).toInt().coerceAtLeast(
+                    1,
+                )
                 val recBitmap = Bitmap.createScaledBitmap(croppedBubble, recWidth, recHeight, true)
 
                 val recBufferIn = OcrUtils.bitmapToFloatBuffer(recBitmap)
                 val recShapeIn = longArrayOf(1, 3, recHeight.toLong(), recWidth.toLong())
-                
+
                 OnnxTensor.createTensor(ortEnv, recBufferIn, recShapeIn).use { recTensor ->
                     val recResults = recSession?.run(Collections.singletonMap(recInputName, recTensor))
-                    
+
                     recResults?.use { recRes ->
                         val recOutputTensor = recRes.iterator().next().value as? OnnxTensor
                         if (recOutputTensor != null) {
@@ -142,7 +144,6 @@ class MangaOcrEngine(
             // 5. THE CLOUD LEAP
             val prompt = buildMegaPrompt(japaneseTextBlocks)
             return@withContext sendToGemini(prompt)
-
         } catch (e: Exception) {
             return@withContext "Engine Error: ${e.message}"
         }
@@ -159,14 +160,14 @@ class MangaOcrEngine(
             val timeStep = timeStepObj as? FloatArray ?: continue
             var maxProb = -1f
             var maxIdx = -1
-            
+
             for (i in timeStep.indices) {
                 if (timeStep[i] > maxProb) {
                     maxProb = timeStep[i]
                     maxIdx = i
                 }
             }
-            
+
             if (maxIdx > 0 && maxIdx != lastIndex && maxIdx <= dictionary.size) {
                 sb.append(dictionary[maxIdx - 1])
             }
@@ -180,7 +181,9 @@ class MangaOcrEngine(
      */
     private fun buildMegaPrompt(japaneseBlocks: List<String>): String {
         val sb = java.lang.StringBuilder()
-        sb.append("You are an elite manga translator. Translate the following Japanese text blocks to English. Keep each block separated:\n\n")
+        sb.append(
+            "You are an elite manga translator. Translate the following Japanese text blocks to English. Keep each block separated:\n\n",
+        )
         japaneseBlocks.forEachIndexed { index, text ->
             sb.append("Block ${index + 1}: $text\n")
         }
@@ -192,7 +195,10 @@ class MangaOcrEngine(
      */
     private fun sendToGemini(prompt: String): String {
         try {
-            val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey")
+            val url =
+                URL(
+                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey",
+                )
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json")
