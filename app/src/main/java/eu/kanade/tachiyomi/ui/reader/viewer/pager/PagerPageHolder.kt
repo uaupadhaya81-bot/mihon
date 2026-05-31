@@ -1,4 +1,5 @@
 package eu.kanade.tachiyomi.ui.reader.viewer.pager
+
 import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.content.Context
@@ -35,6 +36,7 @@ import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.i18n.MR
+import java.io.File
 
 /**
  * View of the ViewPager that contains a page of a chapter.
@@ -55,7 +57,7 @@ class PagerPageHolder(
     /**
      * Loading progress bar to indicate the current progress.
      */
-    private var progressIndicator: ReaderProgressIndicator? = null // = ReaderProgressIndicator(readerThemedContext)
+    private var progressIndicator: ReaderProgressIndicator? = null
 
     /**
      * Error layout to show when the image fails to load.
@@ -70,46 +72,59 @@ class PagerPageHolder(
     private var loadJob: Job? = null
 
     init {
-        binding.viewer.setOnLongClickListener {
-            val context = binding.viewer.context
-            val prefs = context.getSharedPreferences("OcrPrefs", android.content.Context.MODE_PRIVATE)
+        // We set the long click listener directly on 'this' (the ReaderPageImageView)
+        this.setOnLongClickListener {
+            val currentContext = this.context
+            val prefs = currentContext.getSharedPreferences("OcrPrefs", Context.MODE_PRIVATE)
             val apiKey = prefs.getString("gemini_key", "") ?: ""
 
             if (apiKey.isEmpty()) {
-                val input = EditText(context)
+                val input = EditText(currentContext)
                 input.hint = "Paste Gemini API Key here"
-                AlertDialog.Builder(context)
+                AlertDialog.Builder(currentContext)
                     .setTitle("Enter Gemini API Key")
                     .setView(input)
                     .setPositiveButton("Save") { _, _ ->
                         prefs.edit().putString("gemini_key", input.text.toString()).apply()
-                        Toast.makeText(context, "Key Saved! Long-press again to translate.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(currentContext, "Key Saved! Long-press again to translate.", Toast.LENGTH_SHORT).show()
                     }.show()
                 return@setOnLongClickListener true
             }
 
-            val chapterCacheDir = this.page?.chapter?.downloadDir
+            // In Mihon, the actual downloaded image file for the current page is stored as the stream.
+            // Because we don't have direct access to the chapter folder, we will pass the parent directory 
+            // of the currently loaded image file to the engine.
+            val pageStreamFile = page.stream?.invoke()
+            val fileDir = try {
+                // This is a workaround to get the folder path. It only works if the file is downloaded locally.
+                val field = pageStreamFile?.javaClass?.getDeclaredField("file")
+                field?.isAccessible = true
+                val file = field?.get(pageStreamFile) as? File
+                file?.parentFile
+            } catch (e: Exception) {
+                null
+            }
 
-            if (chapterCacheDir == null || !chapterCacheDir.exists()) {
+            if (fileDir == null || !fileDir.exists()) {
                 Toast.makeText(
-                    context,
-                    "Please download this chapter first to use Batch Translation!",
+                    currentContext,
+                    "Please download this chapter fully first to use Batch Translation!",
                     Toast.LENGTH_LONG,
                 ).show()
                 return@setOnLongClickListener true
             }
 
-            Toast.makeText(context, "Translating Chapter via Gemini...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(currentContext, "Translating Chapter via Gemini...", Toast.LENGTH_SHORT).show()
 
-            binding.viewer.findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
-                val engine = MangaOcrEngine(context, apiKey)
-                val translatedChapterMap = engine.processDownloadedChapter(chapterCacheDir)
+            this.findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
+                val engine = MangaOcrEngine(currentContext, apiKey)
+                val translatedChapterMap = engine.processDownloadedChapter(fileDir)
 
                 withContext(Dispatchers.Main) {
-                    val currentPageData = translatedChapterMap[page?.index ?: 0]
+                    val currentPageData = translatedChapterMap[page.index]
                     val displayResult = currentPageData?.translatedBlocks?.joinToString("\n") ?: "No text found."
 
-                    AlertDialog.Builder(context)
+                    AlertDialog.Builder(currentContext)
                         .setTitle("Gemini Translation Result")
                         .setMessage(displayResult)
                         .setPositiveButton("Close", null)
