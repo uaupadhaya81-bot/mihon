@@ -38,11 +38,11 @@ class MangaOcrEngine(private val context: Context, private val apiKey: String) {
 
     suspend fun processDownloadedChapter(chapterDir: File): Map<Int, PageData> = withContext(Dispatchers.Default) {
         val chapterTranslationMap = mutableMapOf<Int, PageData>()
-
-        val imageFiles = chapterDir.listFiles { file ->
+        
+        val imageFiles = chapterDir.listFiles { file -> 
             file.isFile && (
-                file.extension.equals("jpg", true) ||
-                file.extension.equals("png", true) ||
+                file.extension.equals("jpg", true) || 
+                file.extension.equals("png", true) || 
                 file.extension.equals("webp", true)
             )
         }?.sortedBy { it.name } ?: return@withContext emptyMap()
@@ -54,7 +54,7 @@ class MangaOcrEngine(private val context: Context, private val apiKey: String) {
             val bitmap = BitmapFactory.decodeFile(file.absolutePath, options) ?: return@forEachIndexed
 
             val foundBlocks = runOcrDetection(bitmap)
-
+            
             chapterTranslationMap[index] = PageData(pageIndex = index, blocks = foundBlocks)
 
             compiledTextPrompt.append("--- PAGE $index ---\n")
@@ -63,8 +63,8 @@ class MangaOcrEngine(private val context: Context, private val apiKey: String) {
             }
             compiledTextPrompt.append("\n")
 
-            bitmap.recycle()
-            System.gc()
+            bitmap.recycle() 
+            System.gc() 
         }
 
         if (compiledTextPrompt.isNotBlank() && apiKey.isNotBlank()) {
@@ -79,7 +79,7 @@ class MangaOcrEngine(private val context: Context, private val apiKey: String) {
         try {
             val targetSize = 640
             val floatArray = preprocessBitmap(bitmap, targetSize, targetSize)
-
+            
             val floatBuffer = FloatBuffer.wrap(floatArray)
             val shape = longArrayOf(1, 3, targetSize.toLong(), targetSize.toLong())
             val inputTensor = OnnxTensor.createTensor(env, floatBuffer, shape)
@@ -95,9 +95,8 @@ class MangaOcrEngine(private val context: Context, private val apiKey: String) {
 
             return listOf(
                 TextBlock("お前はもう死んでいる。", 100f, 150f, 200f, 80f),
-                TextBlock("何！？", 150f, 400f, 100f, 50f)
+                TextBlock("何！？", 150f, 400f, 100f, 50f),
             )
-
         } catch (e: Exception) {
             Log.e("MangaOcrEngine", "ONNX Detection Crashed!", e)
             return emptyList()
@@ -106,26 +105,26 @@ class MangaOcrEngine(private val context: Context, private val apiKey: String) {
 
     private fun preprocessBitmap(bitmap: Bitmap, targetWidth: Int, targetHeight: Int): FloatArray {
         val scaledBitmap = Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
-
+        
         val floatArray = FloatArray(3 * targetWidth * targetHeight)
         val pixels = IntArray(targetWidth * targetHeight)
         scaledBitmap.getPixels(pixels, 0, targetWidth, 0, 0, targetWidth, targetHeight)
-
+        
         val mean = floatArrayOf(0.485f, 0.456f, 0.406f)
         val std = floatArrayOf(0.229f, 0.224f, 0.225f)
-
+        
         val area = targetWidth * targetHeight
         for (i in pixels.indices) {
             val pixel = pixels[i]
             val r = ((pixel shr 16 and 0xFF) / 255.0f - mean[0]) / std[0]
             val g = ((pixel shr 8 and 0xFF) / 255.0f - mean[1]) / std[1]
             val b = ((pixel and 0xFF) / 255.0f - mean[2]) / std[2]
-
+            
             floatArray[i] = r
             floatArray[area + i] = g
             floatArray[2 * area + i] = b
         }
-
+        
         scaledBitmap.recycle()
         return floatArray
     }
@@ -133,7 +132,7 @@ class MangaOcrEngine(private val context: Context, private val apiKey: String) {
     private fun fetchBulkGeminiTranslation(bulkText: String): String {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/" +
             "gemini-3.1-flash-lite:generateContent?key=$apiKey"
-
+            
         val systemInstruction = "You are an expert manga translator. " +
             "Translate the provided text into natural English. " +
             "Preserve the exact structural layout. Maintain page and block " +
