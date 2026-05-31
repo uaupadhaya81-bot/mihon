@@ -86,13 +86,17 @@ class PagerPageHolder(
                     .setView(input)
                     .setPositiveButton("Save") { _, _ ->
                         prefs.edit().putString("gemini_key", input.text.toString()).apply()
-                        Toast.makeText(currentContext, "Key Saved! Long-press again to translate.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            currentContext,
+                            "Key Saved! Long-press again to translate.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }.show()
                 return@setOnLongClickListener true
             }
 
             // In Mihon, the actual downloaded image file for the current page is stored as the stream.
-            // Because we don't have direct access to the chapter folder, we will pass the parent directory 
+            // Because we don't have direct access to the chapter folder, we will pass the parent directory
             // of the currently loaded image file to the engine.
             val pageStreamFile = page.stream?.invoke()
             val fileDir = try {
