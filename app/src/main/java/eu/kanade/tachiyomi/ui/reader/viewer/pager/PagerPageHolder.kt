@@ -1,32 +1,30 @@
 package eu.kanade.tachiyomi.ui.reader.viewer.pager
-import android.app.AlertDialog
-import android.widget.EditText
-import android.widget.Toast
-import androidx.lifecycle.findViewTreeLifecycleOwner
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import eu.kanade.tachiyomi.ui.reader.MangaOcrEngine
-
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.Context
 import android.view.LayoutInflater
+import android.widget.EditText
+import android.widget.Toast
 import androidx.core.view.isVisible
+import androidx.lifecycle.findViewTreeLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import eu.kanade.presentation.util.formattedMessage
 import eu.kanade.tachiyomi.databinding.ReaderErrorBinding
 import eu.kanade.tachiyomi.source.model.Page
+import eu.kanade.tachiyomi.ui.reader.MangaOcrEngine
 import eu.kanade.tachiyomi.ui.reader.model.InsertPage
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.widget.ViewPagerAdapter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import okio.Buffer
 import okio.BufferedSource
@@ -72,7 +70,7 @@ class PagerPageHolder(
     private var loadJob: Job? = null
 
     init {
-            binding.viewer.setOnLongClickListener {
+        binding.viewer.setOnLongClickListener {
             val context = binding.viewer.context
             val prefs = context.getSharedPreferences("OcrPrefs", android.content.Context.MODE_PRIVATE)
             val apiKey = prefs.getString("gemini_key", "") ?: ""
@@ -93,7 +91,11 @@ class PagerPageHolder(
             val chapterCacheDir = this.page?.chapter?.downloadDir
 
             if (chapterCacheDir == null || !chapterCacheDir.exists()) {
-                Toast.makeText(context, "Please download this chapter first to use Batch Translation!", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    context,
+                    "Please download this chapter first to use Batch Translation!",
+                    Toast.LENGTH_LONG,
+                ).show()
                 return@setOnLongClickListener true
             }
 
@@ -106,7 +108,7 @@ class PagerPageHolder(
                 withContext(Dispatchers.Main) {
                     val currentPageData = translatedChapterMap[page?.index ?: 0]
                     val displayResult = currentPageData?.translatedBlocks?.joinToString("\n") ?: "No text found."
-                    
+
                     AlertDialog.Builder(context)
                         .setTitle("Gemini Translation Result")
                         .setMessage(displayResult)
@@ -115,8 +117,7 @@ class PagerPageHolder(
                 }
             }
             true
-       }
-                
+        }
     }
 
     /**
