@@ -279,7 +279,7 @@ class ReaderActivity : BaseActivity() {
                     android.widget.Toast.LENGTH_SHORT,
                 ).show()
 
-                androidx.lifecycle.lifecycleScope.launch {
+                lifecycleScope.launch {
                     // For Phase 1 testing, we pass a dummy file.
                     val engine = MangaOcrEngine(this@ReaderActivity, apiKey)
                     val translatedChapterMap = engine.processDownloadedChapter(java.io.File(""))
