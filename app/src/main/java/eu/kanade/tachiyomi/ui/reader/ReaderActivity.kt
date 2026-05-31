@@ -141,17 +141,22 @@ class ReaderActivity : BaseActivity() {
         private set
 
     // --- NEW: GALLERY LAUNCHER ---
-    private val galleryLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            val inputStream = contentResolver.openInputStream(uri)
-            val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
-            
-            lifecycleScope.launch {
-                // The ONNX engine processing will go here in the next step!
-                android.widget.Toast.makeText(this@ReaderActivity, "Image selected! Math engine coming next.", android.widget.Toast.LENGTH_SHORT).show()
+    private val galleryLauncher =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+            if (uri != null) {
+                val inputStream = contentResolver.openInputStream(uri)
+                val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+
+                lifecycleScope.launch {
+                    // The ONNX engine processing will go here in the next step!
+                    android.widget.Toast.makeText(
+                        this@ReaderActivity,
+                        "Image selected! Math engine coming next.",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                }
             }
         }
-    }
 
     /**
      * Called when the activity is created. Initializes the presenter and configuration.
@@ -267,7 +272,7 @@ class ReaderActivity : BaseActivity() {
 
             setOnClickListener {
                 // This tells Android to open the gallery and show only images
-                galleryLauncher.launch("image/*") 
+                galleryLauncher.launch("image/*")
             }
         }
 

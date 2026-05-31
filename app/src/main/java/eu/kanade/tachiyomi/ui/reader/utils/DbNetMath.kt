@@ -5,17 +5,22 @@ import android.graphics.Rect
 object DbNetMath {
 
     /**
-     * Takes the massive grid of raw probabilities from the ONNX detection model and 
+     * Takes the massive grid of raw probabilities from the ONNX detection model and
      * mathematically draws bounding boxes around areas with a high text probability.
      */
-    fun extractBoundingBoxes(probabilityGrid: FloatArray, width: Int, height: Int, threshold: Float = 0.3f): List<Rect> {
+    fun extractBoundingBoxes(
+        probabilityGrid: FloatArray,
+        width: Int,
+        height: Int,
+        threshold: Float = 0.3f,
+    ): List<Rect> {
         val boxes = mutableListOf<Rect>()
         val visited = BooleanArray(width * height)
 
         for (y in 0 until height) {
             for (x in 0 until width) {
                 val index = y * width + x
-                
+
                 // If we haven't checked this pixel, and the AI thinks it's text
                 if (!visited[index] && probabilityGrid[index] > threshold) {
                     val box = traceContourBFS(probabilityGrid, visited, x, y, width, height, threshold)
@@ -34,13 +39,13 @@ object DbNetMath {
      * to find the outer limits (left, top, right, bottom) of the whole text bubble.
      */
     private fun traceContourBFS(
-        grid: FloatArray, 
-        visited: BooleanArray, 
-        startX: Int, 
-        startY: Int, 
-        width: Int, 
-        height: Int, 
-        threshold: Float
+        grid: FloatArray,
+        visited: BooleanArray,
+        startX: Int,
+        startY: Int,
+        width: Int,
+        height: Int,
+        threshold: Float,
     ): Rect {
         var minX = startX
         var maxX = startX
@@ -67,7 +72,7 @@ object DbNetMath {
                     if (!visited[nIndex] && grid[nIndex] > threshold) {
                         visited[nIndex] = true
                         queue.add(Pair(nx, ny))
-                        
+
                         // Push the boundaries of our box outwards
                         if (nx < minX) minX = nx
                         if (nx > maxX) maxX = nx
@@ -84,7 +89,7 @@ object DbNetMath {
             (minX - padding).coerceAtLeast(0),
             (minY - padding).coerceAtLeast(0),
             (maxX + padding).coerceAtMost(width - 1),
-            (maxY + padding).coerceAtMost(height - 1)
+            (maxY + padding).coerceAtMost(height - 1),
         )
     }
 }

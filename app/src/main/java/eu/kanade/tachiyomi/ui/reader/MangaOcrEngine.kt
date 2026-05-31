@@ -1,10 +1,10 @@
 package eu.kanade.tachiyomi.ui.reader
 
-import android.content.Context
-import android.graphics.Bitmap
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import android.content.Context
+import android.graphics.Bitmap
 import eu.kanade.tachiyomi.ui.reader.utils.DbNetMath
 import eu.kanade.tachiyomi.ui.reader.utils.OcrUtils
 import kotlinx.coroutines.Dispatchers
@@ -30,13 +30,13 @@ class MangaOcrEngine(
     init {
         try {
             ortEnv = OrtEnvironment.getEnvironment()
-            
+
             val detModelBytes = context.assets.open("ch_PP-OCRv5_det_infer.onnx").readBytes()
             detSession = ortEnv?.createSession(detModelBytes, OrtSession.SessionOptions())
-            
+
             val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.onnx").readBytes()
             recSession = ortEnv?.createSession(recModelBytes, OrtSession.SessionOptions())
-            
+
             // Load the dictionary file
             dictionary = context.assets.open("ppocr_keys_v1.txt").bufferedReader().readLines()
         } catch (e: Exception) {
@@ -63,7 +63,7 @@ class MangaOcrEngine(
             val inputName = detSession?.inputNames?.iterator()?.next()
             val detResults = detSession?.run(Collections.singletonMap(inputName, tensor))
             val rawOutput = detResults?.get(0)?.value as Array<Array<Array<FloatArray>>>
-            
+
             // Flatten the weird multi-dimensional array into a simple 1D array for our math
             val flatProbabilities = FloatArray(scaledBitmap.width * scaledBitmap.height)
             var index = 0
@@ -84,23 +84,25 @@ class MangaOcrEngine(
             for (box in boxes) {
                 // Crop the high-res image
                 val croppedBubble = OcrUtils.cropBubble(bitmap, box, scaleX, scaleY)
-                
+
                 // PP-OCR expects recognition images to be exactly 48 pixels high
                 val recHeight = 48
-                val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight).toInt().coerceAtLeast(1)
+                val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight).toInt().coerceAtLeast(
+                    1,
+                )
                 val recBitmap = Bitmap.createScaledBitmap(croppedBubble, recWidth, recHeight, true)
 
                 // Run the recognition model
                 val recBuffer = OcrUtils.bitmapToFloatBuffer(recBitmap)
                 val recShape = longArrayOf(1, 3, recHeight.toLong(), recWidth.toLong())
                 val recTensor = OnnxTensor.createTensor(ortEnv, recBuffer, recShape)
-                
+
                 val recResults = recSession?.run(Collections.singletonMap(recInputName, recTensor))
-                
+
                 // Decode the Kanji using our dictionary
                 val recOutput = recResults?.get(0)?.value as Array<Array<FloatArray>>
                 val decodedText = decodeRecognitionOutput(recOutput[0])
-                
+
                 if (decodedText.isNotBlank()) {
                     japaneseTextBlocks.add(decodedText)
                 }
@@ -111,7 +113,6 @@ class MangaOcrEngine(
             // 6. THE CLOUD LEAP
             val prompt = buildMegaPrompt(japaneseTextBlocks)
             return@withContext sendToGemini(prompt)
-
         } catch (e: Exception) {
             return@withContext "Engine Error: ${e.message}"
         }
@@ -147,7 +148,9 @@ class MangaOcrEngine(
      */
     private fun buildMegaPrompt(japaneseBlocks: List<String>): String {
         val sb = java.lang.StringBuilder()
-        sb.append("You are an elite manga translator. Translate the following Japanese text blocks to English. Keep each block separated:\n\n")
+        sb.append(
+            "You are an elite manga translator. Translate the following Japanese text blocks to English. Keep each block separated:\n\n",
+        )
         japaneseBlocks.forEachIndexed { index, text ->
             sb.append("Block ${index + 1}: $text\n")
         }
@@ -159,7 +162,10 @@ class MangaOcrEngine(
      */
     private fun sendToGemini(prompt: String): String {
         try {
-            val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey")
+            val url =
+                URL(
+                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey",
+                )
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json")
@@ -197,4 +203,3 @@ class MangaOcrEngine(
         return@withContext resultMap
     }
 }
-

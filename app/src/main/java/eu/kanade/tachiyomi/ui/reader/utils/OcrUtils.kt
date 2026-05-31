@@ -13,7 +13,7 @@ object OcrUtils {
         val width = bitmap.width
         val height = bitmap.height
         val maxSide = maxOf(width, height)
-        
+
         if (maxSide <= maxLength) return bitmap
 
         val scale = maxLength.toFloat() / maxSide
@@ -24,22 +24,22 @@ object OcrUtils {
     }
 
     /**
-     * Converts standard Android image pixels into a mathematical FloatBuffer 
+     * Converts standard Android image pixels into a mathematical FloatBuffer
      * normalized between 0.0 and 1.0 (The format ONNX models read).
      */
     fun bitmapToFloatBuffer(bitmap: Bitmap): FloatBuffer {
         val width = bitmap.width
         val height = bitmap.height
         val floatBuffer = FloatBuffer.allocate(1 * 3 * height * width)
-        
+
         val pixels = IntArray(width * height)
         bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-        
+
         for (pixel in pixels) {
             val r = ((pixel shr 16) and 0xFF) / 255.0f
             val g = ((pixel shr 8) and 0xFF) / 255.0f
             val b = (pixel and 0xFF) / 255.0f
-            
+
             floatBuffer.put(r)
             floatBuffer.put(g)
             floatBuffer.put(b)
@@ -66,4 +66,3 @@ object OcrUtils {
         return Bitmap.createBitmap(originalBitmap, left, top, width, height)
     }
 }
-
