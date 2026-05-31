@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.reader
 
+import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
@@ -14,6 +15,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
+import java.nio.FloatBuffer
+import java.util.Collections
 
 class MangaOcrEngine(private val context: Context, private val apiKey: String) {
 
@@ -46,7 +49,7 @@ class MangaOcrEngine(private val context: Context, private val apiKey: String) {
             val options = BitmapFactory.Options().apply { inMutable = true }
             val bitmap = BitmapFactory.decodeFile(file.absolutePath, options) ?: return@forEachIndexed
 
-            // Simulated ONNX detection for now
+            // Now we actually run the ONNX AI math!
             val foundBlocks = runOcrDetection(bitmap)
             
             chapterTranslationMap[index] = PageData(pageIndex = index, blocks = foundBlocks)
@@ -69,13 +72,73 @@ class MangaOcrEngine(private val context: Context, private val apiKey: String) {
         return@withContext chapterTranslationMap
     }
 
+    // --- NEW: ONNX AI INFERENCE LOGIC ---
     private fun runOcrDetection(bitmap: Bitmap): List<TextBlock> {
-        // Dummy data to test the Gemini connection before we write the complex ONNX math
-        return listOf(
-            TextBlock("お前はもう死んでいる。", 100f, 150f, 200f, 80f),
-            TextBlock("何！？", 150f, 400f, 100f, 50f)
-        )
+        try {
+            // 1. Convert Android Image to PaddleOCR Tensor dimensions (e.g., 640x640)
+            val targetSize = 640
+            val floatArray = preprocessBitmap(bitmap, targetSize, targetSize)
+            
+            // 2. Create the ONNX FloatBuffer and Tensor
+            val floatBuffer = FloatBuffer.wrap(floatArray)
+            val shape = longArrayOf(1, 3, targetSize.toLong(), targetSize.toLong())
+            val inputTensor = OnnxTensor.createTensor(env, floatBuffer, shape)
+
+            // 3. Fire the Neural Network!
+            val inputName = detSession?.inputNames?.iterator()?.next() ?: return emptyList()
+            val result = detSession?.run(Collections.singletonMap(inputName, inputTensor))
+
+            // 4. Prove it worked by grabbing the output probability map
+            val output = result?.get(0)?.value as? Array<Array<Array<FloatArray>>>
+            Log.d("MangaOcrEngine", "ONNX Success! Probability map generated.")
+
+            // Clean up C++ memory to prevent memory leaks
+            inputTensor.close()
+            result?.close()
+
+            // TODO NEXT: We will add the complex math to draw boxes around the probabilities here.
+            // For now, we return our test string to ensure the AI didn't crash the phone!
+            return listOf(
+                TextBlock("お前はもう死んでいる。", 100f, 150f, 200f, 80f),
+                TextBlock("何！？", 150f, 400f, 100f, 50f)
+            )
+
+        } catch (e: Exception) {
+            Log.e("MangaOcrEngine", "ONNX Detection Crashed!", e)
+            return emptyList()
+        }
     }
+
+    // --- NEW: TENSOR PREPROCESSING MATH ---
+    private fun preprocessBitmap(bitmap: Bitmap, targetWidth: Int, targetHeight: Int): FloatArray {
+        // Resize to multiples of 32 for the Neural Network
+        val scaledBitmap = Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
+        
+        val floatArray = FloatArray(3 * targetWidth * targetHeight)
+        val pixels = IntArray(targetWidth * targetHeight)
+        scaledBitmap.getPixels(pixels, 0, targetWidth, 0, 0, targetWidth, targetHeight)
+        
+        // PaddleOCR specific normalization values
+        val mean = floatArrayOf(0.485f, 0.456f, 0.406f)
+        val std = floatArrayOf(0.229f, 0.224f, 0.225f)
+        
+        // Convert to NCHW Format (Channels First: All Reds, then All Greens, then All Blues)
+        val area = targetWidth * targetHeight
+        for (i in pixels.indices) {
+            val pixel = pixels[i]
+            val r = ((pixel shr 16 and 0xFF) / 255.0f - mean[0]) / std[0]
+            val g = ((pixel shr 8 and 0xFF) / 255.0f - mean[1]) / std[1]
+            val b = ((pixel and 0xFF) / 255.0f - mean[2]) / std[2]
+            
+            floatArray[i] = r
+            floatArray[area + i] = g
+            floatArray[2 * area + i] = b
+        }
+        
+        scaledBitmap.recycle()
+        return floatArray
+    }
+    // ----------------------------------------
 
     private fun fetchBulkGeminiTranslation(bulkText: String): String {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=$apiKey"
