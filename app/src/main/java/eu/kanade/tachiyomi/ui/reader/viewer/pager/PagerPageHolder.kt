@@ -115,7 +115,7 @@ class PagerPageHolder(
                 }
             }
             true
-                }
+       }
                 
     }
 
