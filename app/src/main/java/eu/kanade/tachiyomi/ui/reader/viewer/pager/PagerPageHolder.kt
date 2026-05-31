@@ -1,4 +1,13 @@
 package eu.kanade.tachiyomi.ui.reader.viewer.pager
+import android.app.AlertDialog
+import android.widget.EditText
+import android.widget.Toast
+import androidx.lifecycle.findViewTreeLifecycleOwner
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import eu.kanade.tachiyomi.ui.reader.MangaOcrEngine
 
 import android.annotation.SuppressLint
 import android.content.Context
