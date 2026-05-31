@@ -140,6 +140,19 @@ class ReaderActivity : BaseActivity() {
     var isScrollingThroughPages = false
         private set
 
+    // --- NEW: GALLERY LAUNCHER ---
+    private val galleryLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val inputStream = contentResolver.openInputStream(uri)
+            val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+            
+            lifecycleScope.launch {
+                // The ONNX engine processing will go here in the next step!
+                android.widget.Toast.makeText(this@ReaderActivity, "Image selected! Math engine coming next.", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     /**
      * Called when the activity is created. Initializes the presenter and configuration.
      */
@@ -253,48 +266,8 @@ class ReaderActivity : BaseActivity() {
             setPadding(25, 12, 25, 12)
 
             setOnClickListener {
-                val prefs = getSharedPreferences("OcrPrefs", android.content.Context.MODE_PRIVATE)
-                val apiKey = prefs.getString("gemini_key", "") ?: ""
-
-                if (apiKey.isEmpty()) {
-                    val input = android.widget.EditText(this@ReaderActivity)
-                    input.hint = "Paste Gemini API Key here"
-                    android.app.AlertDialog.Builder(this@ReaderActivity)
-                        .setTitle("Enter Gemini API Key")
-                        .setView(input)
-                        .setPositiveButton("Save") { _, _ ->
-                            prefs.edit().putString("gemini_key", input.text.toString()).apply()
-                            android.widget.Toast.makeText(
-                                this@ReaderActivity,
-                                "Key Saved! Tap again.",
-                                android.widget.Toast.LENGTH_SHORT,
-                            ).show()
-                        }.show()
-                    return@setOnClickListener
-                }
-
-                android.widget.Toast.makeText(
-                    this@ReaderActivity,
-                    "Translating via Gemini...",
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
-
-                lifecycleScope.launch {
-                    // For Phase 1 testing, we pass a dummy file.
-                    val engine = MangaOcrEngine(this@ReaderActivity, apiKey)
-                    val translatedChapterMap = engine.processDownloadedChapter(java.io.File(""))
-
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        val displayResult =
-                            translatedChapterMap[0]?.translatedBlocks?.joinToString("\n") ?: "No text found."
-
-                        android.app.AlertDialog.Builder(this@ReaderActivity)
-                            .setTitle("Gemini Translation Result")
-                            .setMessage(displayResult)
-                            .setPositiveButton("Close", null)
-                            .show()
-                    }
-                }
+                // This tells Android to open the gallery and show only images
+                galleryLauncher.launch("image/*") 
             }
         }
 
