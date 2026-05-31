@@ -1,35 +1,23 @@
 package eu.kanade.tachiyomi.ui.reader.viewer.pager
 
 import android.annotation.SuppressLint
-import android.app.AlertDialog
 import android.content.Context
-import android.view.Gravity
 import android.view.LayoutInflater
-import android.view.ViewGroup
-import android.widget.Button
-import android.widget.EditText
-import android.widget.FrameLayout
-import android.widget.Toast
 import androidx.core.view.isVisible
-import androidx.lifecycle.findViewTreeLifecycleOwner
-import androidx.lifecycle.lifecycleScope
 import eu.kanade.presentation.util.formattedMessage
 import eu.kanade.tachiyomi.databinding.ReaderErrorBinding
 import eu.kanade.tachiyomi.source.model.Page
-import eu.kanade.tachiyomi.ui.reader.MangaOcrEngine
 import eu.kanade.tachiyomi.ui.reader.model.InsertPage
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.widget.ViewPagerAdapter
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
-import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import okio.Buffer
 import okio.BufferedSource
@@ -40,11 +28,7 @@ import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.i18n.MR
-import java.io.File
 
-/**
- * View of the ViewPager that contains a page of a chapter.
- */
 @SuppressLint("ViewConstructor")
 class PagerPageHolder(
     readerThemedContext: Context,
@@ -59,74 +43,6 @@ class PagerPageHolder(
     private var errorLayout: ReaderErrorBinding? = null
     private val scope = MainScope()
     private var loadJob: Job? = null
-
-    init {
-        val translateBtn = Button(context).apply {
-            text = "AI Translate"
-            alpha = 0.8f
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                gravity = Gravity.BOTTOM or Gravity.START
-                bottomMargin = 150
-                leftMargin = 50
-            }
-
-            setOnClickListener {
-                val currentContext = this.context
-                val prefs = currentContext.getSharedPreferences("OcrPrefs", Context.MODE_PRIVATE)
-                val apiKey = prefs.getString("gemini_key", "") ?: ""
-
-                if (apiKey.isEmpty()) {
-                    val input = EditText(currentContext)
-                    input.hint = "Paste Gemini API Key here"
-                    AlertDialog.Builder(currentContext)
-                        .setTitle("Enter Gemini API Key")
-                        .setView(input)
-                        .setPositiveButton("Save") { _, _ ->
-                            prefs.edit().putString("gemini_key", input.text.toString()).apply()
-                            Toast.makeText(currentContext, "Key Saved! Tap again.", Toast.LENGTH_SHORT).show()
-                        }.show()
-                    return@setOnClickListener
-                }
-
-                val pageStreamFile = page.stream?.invoke()
-                val fileDir = try {
-                    val field = pageStreamFile?.javaClass?.getDeclaredField("file")
-                    field?.isAccessible = true
-                    val file = field?.get(pageStreamFile) as? File
-                    file?.parentFile
-                } catch (e: Exception) {
-                    null
-                }
-
-                if (fileDir == null || !fileDir.exists()) {
-                    Toast.makeText(currentContext, "Download chapter fully first!", Toast.LENGTH_LONG).show()
-                    return@setOnClickListener
-                }
-
-                Toast.makeText(currentContext, "Translating via Gemini...", Toast.LENGTH_SHORT).show()
-
-                this@PagerPageHolder.findViewTreeLifecycleOwner()?.lifecycleScope?.launch {
-                    val engine = MangaOcrEngine(currentContext, apiKey)
-                    val translatedChapterMap = engine.processDownloadedChapter(fileDir)
-
-                    withContext(Dispatchers.Main) {
-                        val currentPageData = translatedChapterMap[page.index]
-                        val displayResult = currentPageData?.translatedBlocks?.joinToString("\n") ?: "No text found."
-
-                        AlertDialog.Builder(currentContext)
-                            .setTitle("Gemini Translation Result")
-                            .setMessage(displayResult)
-                            .setPositiveButton("Close", null)
-                            .show()
-                    }
-                }
-            }
-        }
-        addView(translateBtn)
-    }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -149,7 +65,6 @@ class PagerPageHolder(
 
     private suspend fun loadPageAndProcessStatus() {
         val loader = page.chapter.pageLoader ?: return
-
         supervisorScope {
             launchIO {
                 loader.loadPage(page)
