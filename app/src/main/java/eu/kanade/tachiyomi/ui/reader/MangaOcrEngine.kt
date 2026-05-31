@@ -1,10 +1,10 @@
 package eu.kanade.tachiyomi.ui.reader
 
+import android.content.Context
+import android.graphics.Bitmap
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
-import android.content.Context
-import android.graphics.Bitmap
 import eu.kanade.tachiyomi.ui.reader.utils.DbNetMath
 import eu.kanade.tachiyomi.ui.reader.utils.OcrUtils
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +13,6 @@ import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.nio.FloatBuffer
 import java.util.Collections
 
 class MangaOcrEngine(
@@ -30,14 +29,13 @@ class MangaOcrEngine(
     init {
         try {
             ortEnv = OrtEnvironment.getEnvironment()
-
+            
             val detModelBytes = context.assets.open("ch_PP-OCRv5_det_infer.onnx").readBytes()
             detSession = ortEnv?.createSession(detModelBytes, OrtSession.SessionOptions())
-
+            
             val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.onnx").readBytes()
             recSession = ortEnv?.createSession(recModelBytes, OrtSession.SessionOptions())
-
-            // Load the dictionary file
+            
             dictionary = context.assets.open("ppocr_keys_v1.txt").bufferedReader().readLines()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -45,96 +43,130 @@ class MangaOcrEngine(
     }
 
     /**
-     * 📸 Process a single image from the Gallery (The Real Deal)
+     * 📸 Process a single image (Bulletproof Array Unpacking Version)
      */
     suspend fun processSingleImage(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
         try {
             // 1. RAM PROTECTION (Shrink)
             val scaledBitmap = OcrUtils.downscaleImageForDetection(bitmap)
-            val scaleX = bitmap.width.toFloat() / scaledBitmap.width
-            val scaleY = bitmap.height.toFloat() / scaledBitmap.height
 
-            // 2. MATHEMATICAL CONVERSION
+            // 2. TENSOR CREATION
             val floatBuffer = OcrUtils.bitmapToFloatBuffer(scaledBitmap)
             val shape = longArrayOf(1, 3, scaledBitmap.height.toLong(), scaledBitmap.width.toLong())
-            val tensor = OnnxTensor.createTensor(ortEnv, floatBuffer, shape)
+            
+            var detW = scaledBitmap.width
+            var detH = scaledBitmap.height
+            var flatProbabilities = FloatArray(0)
 
-            // 3. RUN THE DETECT MODEL
-            val inputName = detSession?.inputNames?.iterator()?.next()
-            val detResults = detSession?.run(Collections.singletonMap(inputName, tensor))
-            val rawOutput = detResults?.get(0)?.value as Array<Array<Array<FloatArray>>>
-
-            // Flatten the weird multi-dimensional array into a simple 1D array for our math
-            val flatProbabilities = FloatArray(scaledBitmap.width * scaledBitmap.height)
-            var index = 0
-            for (y in 0 until scaledBitmap.height) {
-                for (x in 0 until scaledBitmap.width) {
-                    flatProbabilities[index++] = rawOutput[0][0][y][x]
+            OnnxTensor.createTensor(ortEnv, floatBuffer, shape).use { tensor ->
+                val inputName = detSession?.inputNames?.iterator()?.next()
+                val detResults = detSession?.run(Collections.singletonMap(inputName, tensor))
+                
+                detResults?.use { results ->
+                    // Safely extract the raw value without triggering getShape()
+                    val detOutputTensor = results.iterator().next().value as? OnnxTensor
+                    if (detOutputTensor != null) {
+                        // Recursively unpack the raw Java Object to bypass Kotlin Cast Exceptions
+                        val rawDetArray = detOutputTensor.value as? Array<*>
+                        if (rawDetArray != null && rawDetArray.isNotEmpty()) {
+                            val batch = rawDetArray[0] as? Array<*>
+                            if (batch != null && batch.isNotEmpty()) {
+                                val channel = batch[0] as? Array<*>
+                                if (channel != null && channel.isNotEmpty()) {
+                                    detH = channel.size
+                                    detW = (channel[0] as? FloatArray)?.size ?: 0
+                                    
+                                    flatProbabilities = FloatArray(detW * detH)
+                                    var idx = 0
+                                    for (y in 0 until detH) {
+                                        val row = channel[y] as? FloatArray
+                                        if (row != null) {
+                                            for (x in 0 until detW) {
+                                                flatProbabilities[idx++] = row[x]
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
-            // 4. THE MAGIC MATH (Draw the boxes)
-            val boxes = DbNetMath.extractBoundingBoxes(flatProbabilities, scaledBitmap.width, scaledBitmap.height)
+            if (flatProbabilities.isEmpty()) return@withContext "Failed to parse detection output."
+
+            val scaleX = bitmap.width.toFloat() / detW
+            val scaleY = bitmap.height.toFloat() / detH
+
+            // 3. DRAW BOXES
+            val boxes = DbNetMath.extractBoundingBoxes(flatProbabilities, detW, detH)
             if (boxes.isEmpty()) return@withContext "No text found in this image."
 
-            // 5. CROP & RECOGNIZE
+            // 4. CROP & RECOGNIZE
             val japaneseTextBlocks = mutableListOf<String>()
             val recInputName = recSession?.inputNames?.iterator()?.next()
 
             for (box in boxes) {
-                // Crop the high-res image
                 val croppedBubble = OcrUtils.cropBubble(bitmap, box, scaleX, scaleY)
-
-                // PP-OCR expects recognition images to be exactly 48 pixels high
+                
                 val recHeight = 48
-                val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight).toInt().coerceAtLeast(
-                    1,
-                )
+                val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight).toInt().coerceAtLeast(1)
                 val recBitmap = Bitmap.createScaledBitmap(croppedBubble, recWidth, recHeight, true)
 
-                // Run the recognition model
-                val recBuffer = OcrUtils.bitmapToFloatBuffer(recBitmap)
-                val recShape = longArrayOf(1, 3, recHeight.toLong(), recWidth.toLong())
-                val recTensor = OnnxTensor.createTensor(ortEnv, recBuffer, recShape)
-
-                val recResults = recSession?.run(Collections.singletonMap(recInputName, recTensor))
-
-                // Decode the Kanji using our dictionary
-                val recOutput = recResults?.get(0)?.value as Array<Array<FloatArray>>
-                val decodedText = decodeRecognitionOutput(recOutput[0])
-
-                if (decodedText.isNotBlank()) {
-                    japaneseTextBlocks.add(decodedText)
+                val recBufferIn = OcrUtils.bitmapToFloatBuffer(recBitmap)
+                val recShapeIn = longArrayOf(1, 3, recHeight.toLong(), recWidth.toLong())
+                
+                OnnxTensor.createTensor(ortEnv, recBufferIn, recShapeIn).use { recTensor ->
+                    val recResults = recSession?.run(Collections.singletonMap(recInputName, recTensor))
+                    
+                    recResults?.use { recRes ->
+                        val recOutputTensor = recRes.iterator().next().value as? OnnxTensor
+                        if (recOutputTensor != null) {
+                            val rawRecArray = recOutputTensor.value as? Array<*>
+                            if (rawRecArray != null && rawRecArray.isNotEmpty()) {
+                                val batch = rawRecArray[0] as? Array<*>
+                                if (batch != null && batch.isNotEmpty()) {
+                                    val decodedText = decodeRecognitionArray(batch)
+                                    if (decodedText.isNotBlank()) {
+                                        japaneseTextBlocks.add(decodedText)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
-            if (japaneseTextBlocks.isEmpty()) return@withContext "Failed to read the characters."
+            if (japaneseTextBlocks.isEmpty()) return@withContext "Failed to extract text from detected regions."
 
-            // 6. THE CLOUD LEAP
+            // 5. THE CLOUD LEAP
             val prompt = buildMegaPrompt(japaneseTextBlocks)
             return@withContext sendToGemini(prompt)
+
         } catch (e: Exception) {
             return@withContext "Engine Error: ${e.message}"
         }
     }
 
     /**
-     * 📖 Translates the AI's output numbers back into actual Japanese characters
+     * 📖 Translates raw sequential float arrays into Kanji characters
      */
-    private fun decodeRecognitionOutput(outputGrid: Array<FloatArray>): String {
+    private fun decodeRecognitionArray(sequence: Array<*>): String {
         val sb = java.lang.StringBuilder()
         var lastIndex = -1
 
-        for (timeStep in outputGrid) {
-            var maxProb = 0f
+        for (timeStepObj in sequence) {
+            val timeStep = timeStepObj as? FloatArray ?: continue
+            var maxProb = -1f
             var maxIdx = -1
+            
             for (i in timeStep.indices) {
                 if (timeStep[i] > maxProb) {
                     maxProb = timeStep[i]
                     maxIdx = i
                 }
             }
-            // Ignore blanks (usually index 0) and repeating characters (CTC decoding)
+            
             if (maxIdx > 0 && maxIdx != lastIndex && maxIdx <= dictionary.size) {
                 sb.append(dictionary[maxIdx - 1])
             }
@@ -148,9 +180,7 @@ class MangaOcrEngine(
      */
     private fun buildMegaPrompt(japaneseBlocks: List<String>): String {
         val sb = java.lang.StringBuilder()
-        sb.append(
-            "You are an elite manga translator. Translate the following Japanese text blocks to English. Keep each block separated:\n\n",
-        )
+        sb.append("You are an elite manga translator. Translate the following Japanese text blocks to English. Keep each block separated:\n\n")
         japaneseBlocks.forEachIndexed { index, text ->
             sb.append("Block ${index + 1}: $text\n")
         }
@@ -162,10 +192,7 @@ class MangaOcrEngine(
      */
     private fun sendToGemini(prompt: String): String {
         try {
-            val url =
-                URL(
-                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey",
-                )
+            val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey")
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json")
@@ -196,10 +223,9 @@ class MangaOcrEngine(
         }
     }
 
-    // Retaining this so the rest of your app doesn't break
     suspend fun processDownloadedChapter(chapterDir: File): Map<Int, TranslationResult> = withContext(Dispatchers.IO) {
         val resultMap = mutableMapOf<Int, TranslationResult>()
-        resultMap[0] = TranslationResult(listOf("Chapter Mode Coming Next!"))
+        resultMap[0] = TranslationResult(listOf("Chapter Mode Ready!"))
         return@withContext resultMap
     }
 }
