@@ -140,54 +140,7 @@ class ReaderActivity : BaseActivity() {
     var isScrollingThroughPages = false
         private set
 
-    // --- 📥 REALTIME GALLERY IMAGE LAUNCHER PIPELINE ---
-    private val galleryLauncher =
-        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
-            if (uri != null) {
-                try {
-                    val inputStream = contentResolver.openInputStream(uri)
-                    val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
-
-                    val prefs = getSharedPreferences("OcrPrefs", android.content.Context.MODE_PRIVATE)
-                    val apiKey = prefs.getString("gemini_key", "") ?: ""
-
-                    if (apiKey.isNotEmpty()) {
-                        android.widget.Toast.makeText(
-                            this,
-                            "Scanning image & translating...",
-                            android.widget.Toast.LENGTH_LONG,
-                        ).show()
-
-                        lifecycleScope.launch {
-                            val engine = MangaOcrEngine(this@ReaderActivity, apiKey)
-                            val liveResult = engine.processSingleImage(bitmap)
-
-                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                android.app.AlertDialog.Builder(this@ReaderActivity)
-                                    .setTitle("Gemini Translation Result")
-                                    .setMessage(liveResult)
-                                    .setPositiveButton("Close", null)
-                                    .show()
-                            }
-                        }
-                    } else {
-                        android.widget.Toast.makeText(
-                            this,
-                            "Error: Missing API key context.",
-                            android.widget.Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                } catch (e: Exception) {
-                    android.widget.Toast.makeText(
-                        this,
-                        "File read error: ${e.message}",
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
-                }
-            }
-        }
-
-    /**
+    
      * Called when the activity is created. Initializes the presenter and configuration.
      */
     override fun onCreate(savedInstanceState: Bundle?) {
