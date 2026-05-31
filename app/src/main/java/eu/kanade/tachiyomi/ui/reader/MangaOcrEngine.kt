@@ -1,14 +1,20 @@
 package eu.kanade.tachiyomi.ui.reader
 
+import android.content.Context
+import android.graphics.Bitmap
+import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
-import android.content.Context
+import eu.kanade.tachiyomi.ui.reader.utils.DbNetMath
+import eu.kanade.tachiyomi.ui.reader.utils.OcrUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.FloatBuffer
+import java.util.Collections
 
 class MangaOcrEngine(
     private val context: Context,
@@ -19,21 +25,19 @@ class MangaOcrEngine(
     private var recSession: OrtSession? = null
     private var dictionary: List<String> = emptyList()
 
-    // 📦 Kept your exact data structure naming
     data class TranslationResult(val translatedBlocks: List<String>)
 
     init {
         try {
-            // Initialize the ONNX Environment and load our new PP-OCRv5 brains from assets
             ortEnv = OrtEnvironment.getEnvironment()
-
+            
             val detModelBytes = context.assets.open("ch_PP-OCRv5_det_infer.onnx").readBytes()
             detSession = ortEnv?.createSession(detModelBytes, OrtSession.SessionOptions())
-
+            
             val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.onnx").readBytes()
             recSession = ortEnv?.createSession(recModelBytes, OrtSession.SessionOptions())
-
-            // Load the Japanese/Chinese character dictionary file
+            
+            // Load the dictionary file
             dictionary = context.assets.open("ppocr_keys_v1.txt").bufferedReader().readLines()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -41,38 +45,109 @@ class MangaOcrEngine(
     }
 
     /**
-     * 🚀 BACKGROUND PIPELINE COORDINATOR
+     * 📸 Process a single image from the Gallery (The Real Deal)
      */
-    suspend fun processDownloadedChapter(chapterDir: File): Map<Int, TranslationResult> = withContext(Dispatchers.IO) {
-        val resultMap = mutableMapOf<Int, TranslationResult>()
+    suspend fun processSingleImage(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
+        try {
+            // 1. RAM PROTECTION (Shrink)
+            val scaledBitmap = OcrUtils.downscaleImageForDetection(bitmap)
+            val scaleX = bitmap.width.toFloat() / scaledBitmap.width
+            val scaleY = bitmap.height.toFloat() / scaledBitmap.height
 
-        // 🧪 TEMPORARY LIVE TEST DATA
-        // This ensures your ONNX initialization and Gemini live cloud connection work perfectly.
-        val dummyJapaneseText = listOf(
-            "お前はもう死んでいる",
-            "何！？",
-        )
+            // 2. MATHEMATICAL CONVERSION
+            val floatBuffer = OcrUtils.bitmapToFloatBuffer(scaledBitmap)
+            val shape = longArrayOf(1, 3, scaledBitmap.height.toLong(), scaledBitmap.width.toLong())
+            val tensor = OnnxTensor.createTensor(ortEnv, floatBuffer, shape)
 
-        // ☁️ Build the batch request and fire it straight to Gemini 3.1 Flash-Lite
-        val prompt = buildMegaPrompt(dummyJapaneseText)
-        val liveTranslationResponse = sendToGemini(prompt)
+            // 3. RUN THE DETECT MODEL
+            val inputName = detSession?.inputNames?.iterator()?.next()
+            val detResults = detSession?.run(Collections.singletonMap(inputName, tensor))
+            val rawOutput = detResults?.get(0)?.value as Array<Array<Array<FloatArray>>>
+            
+            // Flatten the weird multi-dimensional array into a simple 1D array for our math
+            val flatProbabilities = FloatArray(scaledBitmap.width * scaledBitmap.height)
+            var index = 0
+            for (y in 0 until scaledBitmap.height) {
+                for (x in 0 until scaledBitmap.width) {
+                    flatProbabilities[index++] = rawOutput[0][0][y][x]
+                }
+            }
 
-        // Map the real cloud response to our pages for testing
-        resultMap[0] = TranslationResult(listOf(liveTranslationResponse))
-        resultMap[1] = TranslationResult(listOf("Page 2 Cache Standby"))
-        resultMap[2] = TranslationResult(listOf("Page 3 Cache Standby"))
+            // 4. THE MAGIC MATH (Draw the boxes)
+            val boxes = DbNetMath.extractBoundingBoxes(flatProbabilities, scaledBitmap.width, scaledBitmap.height)
+            if (boxes.isEmpty()) return@withContext "No text found in this image."
 
-        return@withContext resultMap
+            // 5. CROP & RECOGNIZE
+            val japaneseTextBlocks = mutableListOf<String>()
+            val recInputName = recSession?.inputNames?.iterator()?.next()
+
+            for (box in boxes) {
+                // Crop the high-res image
+                val croppedBubble = OcrUtils.cropBubble(bitmap, box, scaleX, scaleY)
+                
+                // PP-OCR expects recognition images to be exactly 48 pixels high
+                val recHeight = 48
+                val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight).toInt().coerceAtLeast(1)
+                val recBitmap = Bitmap.createScaledBitmap(croppedBubble, recWidth, recHeight, true)
+
+                // Run the recognition model
+                val recBuffer = OcrUtils.bitmapToFloatBuffer(recBitmap)
+                val recShape = longArrayOf(1, 3, recHeight.toLong(), recWidth.toLong())
+                val recTensor = OnnxTensor.createTensor(ortEnv, recBuffer, recShape)
+                
+                val recResults = recSession?.run(Collections.singletonMap(recInputName, recTensor))
+                
+                // Decode the Kanji using our dictionary
+                val recOutput = recResults?.get(0)?.value as Array<Array<FloatArray>>
+                val decodedText = decodeRecognitionOutput(recOutput[0])
+                
+                if (decodedText.isNotBlank()) {
+                    japaneseTextBlocks.add(decodedText)
+                }
+            }
+
+            if (japaneseTextBlocks.isEmpty()) return@withContext "Failed to read the characters."
+
+            // 6. THE CLOUD LEAP
+            val prompt = buildMegaPrompt(japaneseTextBlocks)
+            return@withContext sendToGemini(prompt)
+
+        } catch (e: Exception) {
+            return@withContext "Engine Error: ${e.message}"
+        }
     }
 
     /**
-     * 🧠 Structures the layout parameters so Gemini translates block-by-block contextually
+     * 📖 Translates the AI's output numbers back into actual Japanese characters
+     */
+    private fun decodeRecognitionOutput(outputGrid: Array<FloatArray>): String {
+        val sb = java.lang.StringBuilder()
+        var lastIndex = -1
+
+        for (timeStep in outputGrid) {
+            var maxProb = 0f
+            var maxIdx = -1
+            for (i in timeStep.indices) {
+                if (timeStep[i] > maxProb) {
+                    maxProb = timeStep[i]
+                    maxIdx = i
+                }
+            }
+            // Ignore blanks (usually index 0) and repeating characters (CTC decoding)
+            if (maxIdx > 0 && maxIdx != lastIndex && maxIdx <= dictionary.size) {
+                sb.append(dictionary[maxIdx - 1])
+            }
+            lastIndex = maxIdx
+        }
+        return sb.toString()
+    }
+
+    /**
+     * 🧠 Structures the layout parameters for Gemini
      */
     private fun buildMegaPrompt(japaneseBlocks: List<String>): String {
-        val sb = StringBuilder()
-        sb.append(
-            "You are an elite manga translator. Translate the following manga Japanese text blocks into natural English. Keep each block answer separated:\n\n",
-        )
+        val sb = java.lang.StringBuilder()
+        sb.append("You are an elite manga translator. Translate the following Japanese text blocks to English. Keep each block separated:\n\n")
         japaneseBlocks.forEachIndexed { index, text ->
             sb.append("Block ${index + 1}: $text\n")
         }
@@ -80,21 +155,16 @@ class MangaOcrEngine(
     }
 
     /**
-     * ☁️ The secure HTTP connection channel to Google's server farm
+     * ☁️ The HTTP connection to Gemini
      */
     private fun sendToGemini(prompt: String): String {
         try {
-            // Hooking into the ultra-fast Gemini Flash pipeline
-            val url =
-                URL(
-                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey",
-                )
+            val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey")
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json")
             connection.doOutput = true
 
-            // Escape strings safely into valid JSON format
             val cleanPrompt = prompt.replace("\n", "\\n").replace("\"", "\\\"")
             val jsonPayload = "{\"contents\": [{\"parts\": [{\"text\": \"$cleanPrompt\"}]}]}"
 
@@ -113,12 +183,18 @@ class MangaOcrEngine(
                         return parts.getJSONObject(0).getString("text").trim()
                     }
                 }
-            } else {
-                return "Cloud API Error: Code ${connection.responseCode}"
             }
+            return "API Error: ${connection.responseCode}"
         } catch (e: Exception) {
-            return "Server Link Interrupted: ${e.message}"
+            return "Connection Failed: ${e.message}"
         }
-        return "Parsing Error"
+    }
+
+    // Retaining this so the rest of your app doesn't break
+    suspend fun processDownloadedChapter(chapterDir: File): Map<Int, TranslationResult> = withContext(Dispatchers.IO) {
+        val resultMap = mutableMapOf<Int, TranslationResult>()
+        resultMap[0] = TranslationResult(listOf("Chapter Mode Coming Next!"))
+        return@withContext resultMap
     }
 }
+
