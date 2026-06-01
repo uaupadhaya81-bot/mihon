@@ -9,6 +9,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
+import android.content.Context
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
+
+fun enqueueChapterTranslation(context: Context, chapterId: Long) {
+    val request = OneTimeWorkRequestBuilder<ChapterTranslationWorker>()
+        .setInputData(workDataOf(ChapterTranslationWorker.KEY_CHAPTER_ID to chapterId))
+        .build()
+
+    WorkManager.getInstance(context).enqueue(request)
+}
 
 class ChapterTranslationWorker(
     private val context: Context,
