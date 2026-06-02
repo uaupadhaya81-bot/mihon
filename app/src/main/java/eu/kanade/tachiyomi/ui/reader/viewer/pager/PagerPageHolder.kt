@@ -226,7 +226,7 @@ class PagerPageHolder(
                 setTextColor(Color.WHITE)
                 textSize = 15f
                 setPadding(40, 40, 40, 40)
-                setBackgroundColor(Color.parseColor("#E6121214")     // Sleek 90% solid AMOLED dark grey
+                setBackgroundColor(Color.parseColor("#E6121214"))
                 visibility = View.GONE
                 movementMethod = ScrollingMovementMethod()
             }
