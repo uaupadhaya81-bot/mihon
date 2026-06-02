@@ -40,7 +40,6 @@ class ChapterTranslationWorker(
                 return@withContext Result.failure()
             }
 
-
             // 2. Initialize the Engine ONCE for the whole chapter
             val engine = MangaOcrEngine(context, apiKey)
 
