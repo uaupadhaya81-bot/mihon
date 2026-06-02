@@ -40,20 +40,17 @@ class ChapterTranslationWorker(
             // 2. Initialize the Engine ONCE for the whole chapter
             val engine = MangaOcrEngine(context, apiKey)
 
-            // 3. Inject Mihon's Database & Download Manager to find the physical folder
+            // 3. Inject Mihon's Database & Download Provider to find the physical folder
             val getChapter: GetChapter = Injekt.get()
             val getManga: GetManga = Injekt.get()
-            val downloadManager: DownloadManager = Injekt.get()
+            val downloadProvider: DownloadProvider = Injekt.get()
 
             val chapter = getChapter.await(chapterId) ?: return@withContext Result.failure()
             val manga = getManga.await(chapter.mangaId) ?: return@withContext Result.failure()
+            
+            // Fix: Ask DownloadProvider directly instead of going through DownloadManager
+            val chapterDir: UniFile? = downloadProvider.findChapterDir(chapter.name, chapter.scanlator, manga.title, manga.source)
 
-            val chapterDir = downloadManager.getProvider().findChapterDir(
-                chapter.name,
-                chapter.scanlator,
-                manga.title,
-                manga.source,
-            )
             if (chapterDir == null || !chapterDir.exists()) {
                 logcat(LogPriority.ERROR) { "TranslationWorker: Chapter not downloaded" }
                 return@withContext Result.failure()
