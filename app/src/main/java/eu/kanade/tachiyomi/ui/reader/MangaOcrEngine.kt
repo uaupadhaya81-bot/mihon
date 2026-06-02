@@ -42,7 +42,15 @@ class MangaOcrEngine(
 
             dictionary = context.assets.open("ppocrv5_dict.txt").bufferedReader().readLines()
         } catch (e: Exception) {
-            initError = e.stackTraceToString()
+            val details = buildString {
+                appendLine("MangaOcrEngine init failed")
+                appendLine("ORT env: ${ortEnv != null}")
+                appendLine("Det session: ${detSession != null}")
+                appendLine("Rec session: ${recSession != null}")
+                appendLine(e.stackTraceToString())
+            }
+            initError = details
+            Log.e(TAG, details, e)
         }
     }
 
@@ -158,8 +166,13 @@ class MangaOcrEngine(
             val prompt = buildMegaPrompt(japaneseTextBlocks)
             return@withContext sendToGemini(prompt)
         } catch (e: Exception) {
-            Log.e(TAG, "processSingleImage failed", e)
-            return@withContext "Engine Error: ${e.message}"
+            val details = buildString {
+                appendLine("processSingleImage failed")
+                appendLine("bitmap=${bitmap.width}x${bitmap.height}")
+                appendLine(e.stackTraceToString())
+            }
+            Log.e(TAG, details, e)
+            return@withContext details
         }
     }
 
