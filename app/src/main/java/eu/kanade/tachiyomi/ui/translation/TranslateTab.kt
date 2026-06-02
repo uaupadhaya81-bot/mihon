@@ -1,6 +1,10 @@
 package eu.kanade.tachiyomi.ui.translation
 
 import android.content.Context
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Pending
@@ -28,12 +34,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -48,7 +57,7 @@ import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.navigator.Navigator
 import cafe.adriel.voyager.navigator.tab.TabOptions
 import com.hippo.unifile.UniFile
-import eu.kanade.presentation.util.Tab
+import eu.kanade.presentation.util.Tab as CoreTab
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.reader.MangaOcrEngine
 import kotlinx.coroutines.Dispatchers
@@ -63,7 +72,7 @@ data class DownloadedChapterInfo(
     val isTranslated: Boolean,
 )
 
-object TranslateTab : Tab {
+object TranslateTab : CoreTab {
 
     override val options: TabOptions
         @Composable
@@ -79,17 +88,48 @@ object TranslateTab : Tab {
             }
         }
 
-    override suspend fun onReselect(navigator: Navigator) {
-        // Optional: Can be used to scroll list to top or trigger an inventory re-scan
-    }
+    override suspend fun onReselect(navigator: Navigator) {}
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     override fun Content() {
+        var selectedTabIndex by remember { mutableIntStateOf(0) }
+
+        Scaffold(
+            topBar = {
+                Column {
+                    TopAppBar(title = { Text("AI Translations") })
+                    TabRow(selectedTabIndex = selectedTabIndex) {
+                        Tab(
+                            selected = selectedTabIndex == 0,
+                            onClick = { selectedTabIndex = 0 },
+                            text = { Text("Dashboard") }
+                        )
+                        Tab(
+                            selected = selectedTabIndex == 1,
+                            onClick = { selectedTabIndex = 1 },
+                            text = { Text("Local OCR Tester") }
+                        )
+                    }
+                }
+            }
+        ) { paddingValues ->
+            Box(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
+                if (selectedTabIndex == 0) {
+                    DashboardSection()
+                } else {
+                    OcrDiagnosticSection()
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun DashboardSection() {
         val context = LocalContext.current
         val prefs = remember { context.getSharedPreferences("OcrPrefs", Context.MODE_PRIVATE) }
         val scope = rememberCoroutineScope()
-
+        
         var showApiKeyDialog by remember { mutableStateOf(false) }
         var apiKeyInput by remember { mutableStateOf(prefs.getString("gemini_key", "") ?: "") }
         var testMessageInput by remember { mutableStateOf("") }
@@ -99,13 +139,11 @@ object TranslateTab : Tab {
         var chapters by remember { mutableStateOf<List<DownloadedChapterInfo>>(emptyList()) }
         var isLoading by remember { mutableStateOf(true) }
 
-        // Scan local storage for downloaded chapters and check for translation.json
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
                 val downloadProvider: DownloadProvider = Injekt.get()
                 val list = mutableListOf<DownloadedChapterInfo>()
-
-                // 🔥 FIXED HACK: We target the hidden Getter Method instead of the Field!
+                
                 var downloadsDir: UniFile? = null
                 try {
                     val method = downloadProvider.javaClass.getDeclaredMethod("getDownloadsDir")
@@ -114,7 +152,7 @@ object TranslateTab : Tab {
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-
+                
                 val sourceDirs = downloadsDir?.listFiles() ?: arrayOf()
                 for (sourceDir in sourceDirs) {
                     if (sourceDir.isFile) continue
@@ -129,8 +167,8 @@ object TranslateTab : Tab {
                                 DownloadedChapterInfo(
                                     mangaTitle = mangaDir.name ?: "Unknown Manga",
                                     chapterTitle = chapDir.name ?: "Unknown Chapter",
-                                    isTranslated = hasTranslation,
-                                ),
+                                    isTranslated = hasTranslation
+                                )
                             )
                         }
                     }
@@ -141,18 +179,17 @@ object TranslateTab : Tab {
         }
 
         Scaffold(
-            topBar = { TopAppBar(title = { Text("AI Translations") }) },
             bottomBar = {
                 BottomAppBar {
                     Button(
                         onClick = { showApiKeyDialog = true },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                     ) {
                         Text("Enter & Test API Key")
                     }
                 }
-            },
-        ) { paddingValues ->
+            }
+        ) { innerPadding ->
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
@@ -163,48 +200,29 @@ object TranslateTab : Tab {
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(paddingValues),
+                    modifier = Modifier.fillMaxSize().padding(innerPadding),
                     contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(chapters) { chap ->
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = chap.mangaTitle,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        text = chap.chapterTitle,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
+                                    Text(text = chap.mangaTitle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(text = chap.chapterTitle, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                                 Spacer(modifier = Modifier.width(16.dp))
-                                // Sign-only translation status indicator
                                 if (chap.isTranslated) {
-                                    Icon(
-                                        Icons.Filled.CheckCircle,
-                                        contentDescription = "Translated",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
+                                    Icon(Icons.Filled.CheckCircle, contentDescription = "Translated", tint = MaterialTheme.colorScheme.primary)
                                 } else {
-                                    Icon(
-                                        Icons.Filled.Pending,
-                                        contentDescription = "Not Translated",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    )
+                                    Icon(Icons.Filled.Pending, contentDescription = "Not Translated", tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
                                 }
                             }
                         }
@@ -213,7 +231,6 @@ object TranslateTab : Tab {
             }
         }
 
-        // The API Key & Gemini Test Dialog
         if (showApiKeyDialog) {
             AlertDialog(
                 onDismissRequest = { showApiKeyDialog = false },
@@ -224,23 +241,21 @@ object TranslateTab : Tab {
                             value = apiKeyInput,
                             onValueChange = { apiKeyInput = it },
                             label = { Text("Gemini API Key") },
-                            singleLine = true,
+                            singleLine = true
                         )
                         OutlinedTextField(
                             value = testMessageInput,
                             onValueChange = { testMessageInput = it },
-                            label = { Text("Direct Test Message") },
+                            label = { Text("Direct Test Message") }
                         )
                         if (isTesting) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp),
-                            )
+                            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp))
                         } else if (testResponse.isNotEmpty()) {
                             Text(
                                 text = "Reply: $testResponse",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 8.dp),
+                                modifier = Modifier.padding(top = 8.dp)
                             )
                         }
                     }
@@ -256,14 +271,69 @@ object TranslateTab : Tab {
                         if (apiKeyInput.isNotBlank() && testMessageInput.isNotBlank()) {
                             isTesting = true
                             scope.launch {
-                                // Calls the static tester without loading heavy ONNX models
                                 testResponse = MangaOcrEngine.testGeminiAPI(apiKeyInput, testMessageInput)
                                 isTesting = false
                             }
                         }
                     }) { Text("Test API") }
-                },
+                }
             )
+        }
+    }
+
+    @Composable
+    fun OcrDiagnosticSection() {
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+        
+        var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+        var ocrDiagnosticLog by remember { mutableStateOf("Upload pictures and press Run to see the structured output format.") }
+        var isRunning by remember { mutableStateOf(false) }
+
+        val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+            if (uris.isNotEmpty()) {
+                selectedUris = uris
+            }
+        }
+
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                    Text("Select Pages")
+                }
+                Text("Selected: ${selectedUris.size}", fontWeight = FontWeight.Bold)
+            }
+
+            Button(
+                onClick = {
+                    isRunning = true
+                    ocrDiagnosticLog = "Processing ${selectedUris.size} items through ONNX. Please wait..."
+                    scope.launch {
+                        // We instantiate the engine with no key needed, since we only run local models
+                        val engine = MangaOcrEngine(context, "")
+                        ocrDiagnosticLog = engine.runLocalOcrTest(context, selectedUris)
+                        isRunning = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = selectedUris.isNotEmpty() && !isRunning
+            ) {
+                Text(if (isRunning) "Running Local OCR Matrix..." else "Run Diagnostics")
+            }
+
+            if (isRunning) {
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else {
+                Text(
+                    text = ocrDiagnosticLog,
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
         }
     }
 }
