@@ -1,4 +1,5 @@
 package eu.kanade.tachiyomi.data.translation
+import eu.kanade.tachiyomi.source.SourceManager
 import android.content.Context
 import android.graphics.BitmapFactory
 import androidx.work.CoroutineWorker
