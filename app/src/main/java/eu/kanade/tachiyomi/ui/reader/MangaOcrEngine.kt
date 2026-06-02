@@ -32,18 +32,22 @@ class MangaOcrEngine(
     init {
         try {
             ortEnv = OrtEnvironment.getEnvironment()
+            Log.d(TAG, "ORT environment created")
 
-            val detModelBytes = context.assets.open("ch_PP-OCRv5_det_infer.onnx").readBytes()
+            val detModelBytes = context.assets.open("ch_PP-OCRv5_det_infer.onnx").use { it.readBytes() }
+            Log.d(TAG, "Detection model bytes loaded: ${detModelBytes.size}")
             detSession = ortEnv?.createSession(detModelBytes, OrtSession.SessionOptions())
+            Log.d(TAG, "Detection session created: ${detSession != null}")
 
-            val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.onnx").readBytes()
+            val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.onnx").use { it.readBytes() }
+            Log.d(TAG, "Recognition model bytes loaded: ${recModelBytes.size}")
             recSession = ortEnv?.createSession(recModelBytes, OrtSession.SessionOptions())
+            Log.d(TAG, "Recognition session created: ${recSession != null}")
 
             dictionary = context.assets.open("ppocrv5_dict.txt").bufferedReader().readLines()
-
-            Log.d(TAG, "OCR engine initialized. dictSize=${dictionary.size}")
+            Log.d(TAG, "Dictionary loaded: ${dictionary.size} entries")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize OCR engine", e)
+            Log.e(TAG, "OCR engine init failed", e)
             e.printStackTrace()
         }
     }
@@ -77,7 +81,6 @@ class MangaOcrEngine(
                     if (detOutputTensor != null) {
                         @Suppress("UNCHECKED_CAST")
                         val rawDetArray = detOutputTensor.value as? Array<Array<Array<FloatArray>>>
-
                         if (rawDetArray != null && rawDetArray.isNotEmpty()) {
                             val batch = rawDetArray[0]
                             if (batch.isNotEmpty()) {
@@ -158,7 +161,6 @@ class MangaOcrEngine(
             }
 
             if (japaneseTextBlocks.isEmpty()) return@withContext "Failed to extract text."
-
             val prompt = buildMegaPrompt(japaneseTextBlocks)
             return@withContext sendToGemini(prompt)
         } catch (e: Exception) {
@@ -211,16 +213,10 @@ class MangaOcrEngine(
                     )
 
                     try {
-                        appendDebug(
-                            sb,
-                            "Slice: yOffset=$yOffset height=$currentHeight size=${slice.width}x${slice.height}",
-                        )
+                        appendDebug(sb, "Slice: yOffset=$yOffset height=$currentHeight size=${slice.width}x${slice.height}")
 
                         val scaledSlice = OcrUtils.downscaleImageForDetection(slice)
-                        appendDebug(
-                            sb,
-                            "Scaled slice for detection: ${scaledSlice.width}x${scaledSlice.height}",
-                        )
+                        appendDebug(sb, "Scaled slice for detection: ${scaledSlice.width}x${scaledSlice.height}")
 
                         val floatBuffer = OcrUtils.bitmapToFloatBuffer(scaledSlice)
                         val shape = longArrayOf(
@@ -263,10 +259,7 @@ class MangaOcrEngine(
                                                         flatProbabilities[idx++] = row[x]
                                                     }
                                                 }
-                                                appendDebug(
-                                                    sb,
-                                                    "Detection parsed: detW=$detW detH=$detH probs=${flatProbabilities.size}",
-                                                )
+                                                appendDebug(sb, "Detection parsed: detW=$detW detH=$detH probs=${flatProbabilities.size}")
                                             } else {
                                                 appendDebug(sb, "Detection parsed but channel was empty.")
                                             }
@@ -314,10 +307,7 @@ class MangaOcrEngine(
                             appendDebug(sb, "Box $boxIndex: $box")
 
                             val croppedBubble = OcrUtils.cropBubble(slice, box, scaleX, scaleY)
-                            appendDebug(
-                                sb,
-                                "Crop size: ${croppedBubble.width}x${croppedBubble.height}",
-                            )
+                            appendDebug(sb, "Crop size: ${croppedBubble.width}x${croppedBubble.height}")
 
                             if (croppedBubble.width <= 0 || croppedBubble.height <= 0) {
                                 appendDebug(sb, "Skipping invalid crop.")
@@ -359,10 +349,7 @@ class MangaOcrEngine(
                                                         val w = ((box.right - box.left) * scaleX).toInt()
                                                         val h = ((box.bottom - box.top) * scaleY).toInt()
 
-                                                        appendDebug(
-                                                            sb,
-                                                            "[BLOCK:$blockCounter] {x: $absX, y: $absY, w: $w, h: $h}",
-                                                        )
+                                                        appendDebug(sb, "[BLOCK:$blockCounter] {x: $absX, y: $absY, w: $w, h: $h}")
                                                         appendDebug(sb, decodedText)
                                                         appendDebug(sb, "")
                                                         blockCounter++
