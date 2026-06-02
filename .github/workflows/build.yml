@@ -1,4 +1,4 @@
-name: Build & Test
+Name: Build & Test
 on:
   pull_request:
     paths:
@@ -10,7 +10,8 @@ on:
       - 'i18n/src/commonMain/moko-resources/base/plurals.xml'
   push:
     branches:
-      - main
+      - '**'          # This triggers automatically on a push to ANY branch
+  workflow_dispatch:  # This enables the manual "Run workflow" button in GitHub Actions
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -47,7 +48,6 @@ jobs:
           curl -L -o app/src/main/assets/det_model.onnx https://github.com/RapidAI/RapidOCR/raw/main/models/ch_PP-OCRv4_det_infer.onnx
           curl -L -o app/src/main/assets/rec_model.onnx https://github.com/RapidAI/RapidOCR/raw/main/models/ch_PP-OCRv4_rec_infer.onnx
           
-      
       - name: Check code format
         run: ./gradlew spotlessCheck
 
@@ -73,5 +73,4 @@ jobs:
         with:
           name: debug-apk-${{ github.sha }}
           path: app/build/outputs/apk/**/*.apk
-          
           
