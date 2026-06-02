@@ -38,7 +38,7 @@ class MangaOcrEngine(
             val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.onnx").readBytes()
             recSession = ortEnv?.createSession(recModelBytes, OrtSession.SessionOptions())
 
-            dictionary = context.assets.open("ppocr_keys_v1.txt").bufferedReader().readLines()
+            dictionary = context.assets.open("ppocrv5_dict.txt").bufferedReader().readLines()
         } catch (e: Exception) {
             e.printStackTrace()
         }
