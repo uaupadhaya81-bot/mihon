@@ -49,9 +49,10 @@ class MangaOcrEngine(
             val scaledBitmap = OcrUtils.downscaleImageForDetection(bitmap)
             val floatBuffer = OcrUtils.bitmapToFloatBuffer(scaledBitmap)
             val shape = longArrayOf(
-                1, 3, 
-                scaledBitmap.height.toLong(), 
-                scaledBitmap.width.toLong()
+                1,
+                3,
+                scaledBitmap.height.toLong(),
+                scaledBitmap.width.toLong(),
             )
 
             var detW = scaledBitmap.width
@@ -67,9 +68,9 @@ class MangaOcrEngine(
                     val detOutputTensor = results.iterator().next().value as? OnnxTensor
                     if (detOutputTensor != null) {
                         @Suppress("UNCHECKED_CAST")
-                        val rawDetArray = detOutputTensor.value as? 
+                        val rawDetArray = detOutputTensor.value as?
                             Array<Array<Array<FloatArray>>>
-                        
+
                         if (rawDetArray != null && rawDetArray.isNotEmpty()) {
                             val batch = rawDetArray[0]
                             if (batch.isNotEmpty()) {
@@ -106,9 +107,12 @@ class MangaOcrEngine(
                 val recHeight = 48
                 val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight)
                     .toInt().coerceAtLeast(1)
-                
+
                 val recBitmap = Bitmap.createScaledBitmap(
-                    croppedBubble, recWidth, recHeight, true
+                    croppedBubble,
+                    recWidth,
+                    recHeight,
+                    true,
                 )
                 val recBufferIn = OcrUtils.bitmapToFloatBuffer(recBitmap)
                 val recShapeIn = longArrayOf(1, 3, recHeight.toLong(), recWidth.toLong())
@@ -116,7 +120,7 @@ class MangaOcrEngine(
                 OnnxTensor.createTensor(ortEnv, recBufferIn, recShapeIn).use { recTensor ->
                     val recMap = Collections.singletonMap(recInputName, recTensor)
                     val recResults = recSession?.run(recMap)
-                    
+
                     recResults?.use { recRes ->
                         val recOutputTensor = recRes.iterator().next().value as? OnnxTensor
                         if (recOutputTensor != null) {
@@ -145,20 +149,20 @@ class MangaOcrEngine(
     }
 
     suspend fun runLocalOcrTest(
-        context: Context, 
-        uris: List<Uri>
+        context: Context,
+        uris: List<Uri>,
     ): String = withContext(Dispatchers.IO) {
         val sb = StringBuilder()
-        
+
         try {
             uris.forEachIndexed { index, uri ->
                 val pageName = "PAGE_${index + 1}"
                 sb.append("========================\n[$pageName]\n========================\n")
-                
+
                 val inputStream = context.contentResolver.openInputStream(uri)
                 val bitmap = BitmapFactory.decodeStream(inputStream)
                 inputStream?.close()
-                
+
                 if (bitmap == null) {
                     sb.append("Error: Failed to load picture into memory.\n\n")
                     return@forEachIndexed
@@ -171,15 +175,20 @@ class MangaOcrEngine(
                 while (yOffset < bitmap.height) {
                     val currentHeight = minOf(sliceMaxHeight, bitmap.height - yOffset)
                     val slice = Bitmap.createBitmap(
-                        bitmap, 0, yOffset, bitmap.width, currentHeight
+                        bitmap,
+                        0,
+                        yOffset,
+                        bitmap.width,
+                        currentHeight,
                     )
-                    
+
                     val scaledSlice = OcrUtils.downscaleImageForDetection(slice)
                     val floatBuffer = OcrUtils.bitmapToFloatBuffer(scaledSlice)
                     val shape = longArrayOf(
-                        1, 3, 
-                        scaledSlice.height.toLong(), 
-                        scaledSlice.width.toLong()
+                        1,
+                        3,
+                        scaledSlice.height.toLong(),
+                        scaledSlice.width.toLong(),
                     )
 
                     var detW = scaledSlice.width
@@ -195,9 +204,9 @@ class MangaOcrEngine(
                             val detOutputTensor = results.iterator().next().value as? OnnxTensor
                             if (detOutputTensor != null) {
                                 @Suppress("UNCHECKED_CAST")
-                                val rawDetArray = detOutputTensor.value as? 
+                                val rawDetArray = detOutputTensor.value as?
                                     Array<Array<Array<FloatArray>>>
-                                
+
                                 if (rawDetArray != null && rawDetArray.isNotEmpty()) {
                                     val batch = rawDetArray[0]
                                     if (batch.isNotEmpty()) {
@@ -231,9 +240,12 @@ class MangaOcrEngine(
                             val recHeight = 48
                             val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight)
                                 .toInt().coerceAtLeast(1)
-                            
+
                             val recBitmap = Bitmap.createScaledBitmap(
-                                croppedBubble, recWidth, recHeight, true
+                                croppedBubble,
+                                recWidth,
+                                recHeight,
+                                true,
                             )
                             val recBufferIn = OcrUtils.bitmapToFloatBuffer(recBitmap)
                             val recShapeIn = longArrayOf(1, 3, recHeight.toLong(), recWidth.toLong())
@@ -241,7 +253,7 @@ class MangaOcrEngine(
                             OnnxTensor.createTensor(ortEnv, recBufferIn, recShapeIn).use { recTensor ->
                                 val recMap = Collections.singletonMap(recInputName, recTensor)
                                 val recResults = recSession?.run(recMap)
-                                
+
                                 recResults?.use { recRes ->
                                     val recOut = recRes.iterator().next().value as? OnnxTensor
                                     if (recOut != null) {
@@ -256,7 +268,7 @@ class MangaOcrEngine(
                                                     val absX = (box.left * scaleX).toInt()
                                                     val w = ((box.right - box.left) * scaleX).toInt()
                                                     val h = ((box.bottom - box.top) * scaleY).toInt()
-                                                    
+
                                                     sb.append("[BLOCK:$blockCounter] ")
                                                     sb.append("{x: $absX, y: $absY, w: $w, h: $h}\n")
                                                     sb.append("$decodedText\n\n")
@@ -278,7 +290,7 @@ class MangaOcrEngine(
         } catch (e: Exception) {
             sb.append("\n\nCRASH ERROR: ${e.message}")
         }
-        
+
         return@withContext sb.toString()
     }
 
@@ -306,7 +318,7 @@ class MangaOcrEngine(
         val sb = java.lang.StringBuilder()
         sb.append(
             "You are an elite manga translator. Translate the following Japanese " +
-            "text blocks to English. Keep each block separated:\n\n"
+                "text blocks to English. Keep each block separated:\n\n",
         )
         japaneseBlocks.forEachIndexed { index, text ->
             sb.append("Block ${index + 1}: $text\n")
@@ -317,21 +329,21 @@ class MangaOcrEngine(
     private fun sendToGemini(prompt: String): String {
         try {
             val urlString = "https://generativelanguage.googleapis.com/v1beta/" +
-                            "models/gemini-3.1-flash-lite:generateContent?key=$apiKey"
+                "models/gemini-3.1-flash-lite:generateContent?key=$apiKey"
             val url = URL(urlString)
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json")
             connection.doOutput = true
-            
+
             val cleanPrompt = prompt.replace("\n", "\\n").replace("\"", "\\\"")
-            val jsonPayload = 
+            val jsonPayload =
                 "{\"contents\": [{\"parts\": [{\"text\": \"$cleanPrompt\"}]}]}"
-            
+
             connection.outputStream.use { os ->
                 os.write(jsonPayload.toByteArray(Charsets.UTF_8))
             }
-            
+
             if (connection.responseCode == 200) {
                 val responseBody = connection.inputStream.bufferedReader().readText()
                 val jsonObject = JSONObject(responseBody)
@@ -351,7 +363,7 @@ class MangaOcrEngine(
     }
 
     suspend fun processDownloadedChapter(
-        chapterDir: File
+        chapterDir: File,
     ): Map<Int, TranslationResult> = withContext(Dispatchers.IO) {
         val resultMap = mutableMapOf<Int, TranslationResult>()
         resultMap[0] = TranslationResult(listOf("Chapter Mode Ready!"))
@@ -360,26 +372,26 @@ class MangaOcrEngine(
 
     companion object {
         suspend fun testGeminiAPI(
-            testKey: String, 
-            message: String
+            testKey: String,
+            message: String,
         ): String = withContext(Dispatchers.IO) {
             try {
                 val urlString = "https://generativelanguage.googleapis.com/v1beta/" +
-                                "models/gemini-3.1-flash-lite:generateContent?key=$testKey"
+                    "models/gemini-3.1-flash-lite:generateContent?key=$testKey"
                 val url = URL(urlString)
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "POST"
                 connection.setRequestProperty("Content-Type", "application/json")
                 connection.doOutput = true
-                
+
                 val cleanPrompt = message.replace("\n", "\\n").replace("\"", "\\\"")
-                val jsonPayload = 
+                val jsonPayload =
                     "{\"contents\": [{\"parts\": [{\"text\": \"$cleanPrompt\"}]}]}"
-                
+
                 connection.outputStream.use { os ->
                     os.write(jsonPayload.toByteArray(Charsets.UTF_8))
                 }
-                
+
                 if (connection.responseCode == 200) {
                     val responseBody = connection.inputStream.bufferedReader().readText()
                     val jsonObject = JSONObject(responseBody)

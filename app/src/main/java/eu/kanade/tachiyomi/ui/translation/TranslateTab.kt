@@ -57,7 +57,6 @@ import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.navigator.Navigator
 import cafe.adriel.voyager.navigator.tab.TabOptions
 import com.hippo.unifile.UniFile
-import eu.kanade.presentation.util.Tab as CoreTab
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.reader.MangaOcrEngine
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +64,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import eu.kanade.presentation.util.Tab as CoreTab
 
 data class DownloadedChapterInfo(
     val mangaTitle: String,
@@ -103,21 +103,21 @@ object TranslateTab : CoreTab {
                         Tab(
                             selected = selectedTabIndex == 0,
                             onClick = { selectedTabIndex = 0 },
-                            text = { Text("Dashboard") }
+                            text = { Text("Dashboard") },
                         )
                         Tab(
                             selected = selectedTabIndex == 1,
                             onClick = { selectedTabIndex = 1 },
-                            text = { Text("Local OCR Tester") }
+                            text = { Text("Local OCR Tester") },
                         )
                     }
                 }
-            }
+            },
         ) { paddingValues ->
             Box(
                 modifier = Modifier
                     .padding(paddingValues)
-                    .fillMaxSize()
+                    .fillMaxSize(),
             ) {
                 if (selectedTabIndex == 0) {
                     DashboardSection()
@@ -133,7 +133,7 @@ object TranslateTab : CoreTab {
         val context = LocalContext.current
         val prefs = remember { context.getSharedPreferences("OcrPrefs", Context.MODE_PRIVATE) }
         val scope = rememberCoroutineScope()
-        
+
         var showApiKeyDialog by remember { mutableStateOf(false) }
         var apiKeyInput by remember { mutableStateOf(prefs.getString("gemini_key", "") ?: "") }
         var testMessageInput by remember { mutableStateOf("") }
@@ -147,7 +147,7 @@ object TranslateTab : CoreTab {
             withContext(Dispatchers.IO) {
                 val downloadProvider: DownloadProvider = Injekt.get()
                 val list = mutableListOf<DownloadedChapterInfo>()
-                
+
                 var downloadsDir: UniFile? = null
                 try {
                     val method = downloadProvider.javaClass.getDeclaredMethod("getDownloadsDir")
@@ -156,7 +156,7 @@ object TranslateTab : CoreTab {
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                
+
                 val sourceDirs = downloadsDir?.listFiles() ?: arrayOf()
                 for (sourceDir in sourceDirs) {
                     if (sourceDir.isFile) continue
@@ -171,8 +171,8 @@ object TranslateTab : CoreTab {
                                 DownloadedChapterInfo(
                                     mangaTitle = mangaDir.name ?: "Unknown Manga",
                                     chapterTitle = chapDir.name ?: "Unknown Chapter",
-                                    isTranslated = hasTranslation
-                                )
+                                    isTranslated = hasTranslation,
+                                ),
                             )
                         }
                     }
@@ -189,28 +189,28 @@ object TranslateTab : CoreTab {
                         onClick = { showApiKeyDialog = true },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
+                            .padding(horizontal = 16.dp),
                     ) {
                         Text("Enter & Test API Key")
                     }
                 }
-            }
+            },
         ) { innerPadding ->
             if (isLoading) {
                 Box(
-                    modifier = Modifier.fillMaxSize(), 
-                    contentAlignment = Alignment.Center
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
                 ) {
                     CircularProgressIndicator()
                 }
             } else if (chapters.isEmpty()) {
                 Box(
-                    modifier = Modifier.fillMaxSize(), 
-                    contentAlignment = Alignment.Center
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "No downloaded chapters found.", 
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "No downloaded chapters found.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             } else {
@@ -219,49 +219,49 @@ object TranslateTab : CoreTab {
                         .fillMaxSize()
                         .padding(innerPadding),
                     contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(chapters) { chap ->
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            ),
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(16.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = chap.mangaTitle, 
-                                        fontWeight = FontWeight.Bold, 
-                                        maxLines = 1, 
-                                        overflow = TextOverflow.Ellipsis
+                                        text = chap.mangaTitle,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        text = chap.chapterTitle, 
-                                        style = MaterialTheme.typography.bodySmall, 
-                                        maxLines = 1, 
-                                        overflow = TextOverflow.Ellipsis
+                                        text = chap.chapterTitle,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                 }
                                 Spacer(modifier = Modifier.width(16.dp))
                                 if (chap.isTranslated) {
                                     Icon(
-                                        imageVector = Icons.Filled.CheckCircle, 
-                                        contentDescription = "Translated", 
-                                        tint = MaterialTheme.colorScheme.primary
+                                        imageVector = Icons.Filled.CheckCircle,
+                                        contentDescription = "Translated",
+                                        tint = MaterialTheme.colorScheme.primary,
                                     )
                                 } else {
                                     Icon(
-                                        imageVector = Icons.Filled.Pending, 
-                                        contentDescription = "Not Translated", 
+                                        imageVector = Icons.Filled.Pending,
+                                        contentDescription = "Not Translated",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                            .copy(alpha = 0.5f)
+                                            .copy(alpha = 0.5f),
                                     )
                                 }
                             }
@@ -281,25 +281,25 @@ object TranslateTab : CoreTab {
                             value = apiKeyInput,
                             onValueChange = { apiKeyInput = it },
                             label = { Text("Gemini API Key") },
-                            singleLine = true
+                            singleLine = true,
                         )
                         OutlinedTextField(
                             value = testMessageInput,
                             onValueChange = { testMessageInput = it },
-                            label = { Text("Direct Test Message") }
+                            label = { Text("Direct Test Message") },
                         )
                         if (isTesting) {
                             CircularProgressIndicator(
                                 modifier = Modifier
                                     .align(Alignment.CenterHorizontally)
-                                    .padding(top = 8.dp)
+                                    .padding(top = 8.dp),
                             )
                         } else if (testResponse.isNotEmpty()) {
                             Text(
                                 text = "Reply: $testResponse",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 8.dp)
+                                modifier = Modifier.padding(top = 8.dp),
                             )
                         }
                     }
@@ -316,14 +316,14 @@ object TranslateTab : CoreTab {
                             isTesting = true
                             scope.launch {
                                 testResponse = MangaOcrEngine.testGeminiAPI(
-                                    apiKeyInput, 
-                                    testMessageInput
+                                    apiKeyInput,
+                                    testMessageInput,
                                 )
                                 isTesting = false
                             }
                         }
                     }) { Text("Test API") }
-                }
+                },
             )
         }
     }
@@ -332,15 +332,15 @@ object TranslateTab : CoreTab {
     fun OcrDiagnosticSection() {
         val context = LocalContext.current
         val scope = rememberCoroutineScope()
-        
+
         var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
-        var ocrDiagnosticLog by remember { 
-            mutableStateOf("Upload pictures and press Run to test the local OCR engine.") 
+        var ocrDiagnosticLog by remember {
+            mutableStateOf("Upload pictures and press Run to test the local OCR engine.")
         }
         var isRunning by remember { mutableStateOf(false) }
 
         val photoPicker = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.PickMultipleVisualMedia()
+            contract = ActivityResultContracts.PickMultipleVisualMedia(),
         ) { uris ->
             if (uris.isNotEmpty()) {
                 selectedUris = uris
@@ -350,23 +350,22 @@ object TranslateTab : CoreTab {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp), 
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            
             Row(
-                modifier = Modifier.fillMaxWidth(), 
-                horizontalArrangement = Arrangement.SpaceBetween, 
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Button(
-                    onClick = { 
+                    onClick = {
                         photoPicker.launch(
                             PickVisualMediaRequest(
-                                ActivityResultContracts.PickVisualMedia.ImageOnly
-                            )
-                        ) 
-                    }
+                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                            ),
+                        )
+                    },
                 ) {
                     Text("Select Pages")
                 }
@@ -384,7 +383,7 @@ object TranslateTab : CoreTab {
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = selectedUris.isNotEmpty() && !isRunning
+                enabled = selectedUris.isNotEmpty() && !isRunning,
             ) {
                 Text(if (isRunning) "Running Local Matrix..." else "Run Diagnostics")
             }
@@ -393,8 +392,8 @@ object TranslateTab : CoreTab {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f), 
-                    contentAlignment = Alignment.Center
+                        .weight(1f),
+                    contentAlignment = Alignment.Center,
                 ) {
                     CircularProgressIndicator()
                 }
@@ -405,7 +404,7 @@ object TranslateTab : CoreTab {
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState()),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
         }
