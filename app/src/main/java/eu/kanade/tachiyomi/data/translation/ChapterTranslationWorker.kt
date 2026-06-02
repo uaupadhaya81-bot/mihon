@@ -1,5 +1,4 @@
 package eu.kanade.tachiyomi.data.translation
-import java.io.OutputStream
 import android.content.Context
 import android.graphics.BitmapFactory
 import androidx.work.CoroutineWorker
@@ -17,6 +16,7 @@ import tachiyomi.domain.chapter.interactor.GetChapter
 import tachiyomi.domain.manga.interactor.GetManga
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.io.OutputStream
 
 class ChapterTranslationWorker(
     private val context: Context,
@@ -116,11 +116,11 @@ class ChapterTranslationWorker(
             }
             rootJson.put("pages", pagesJson)
 
-        // Convert to string (The '4' makes the JSON perfectly formatted and readable)
+            // Convert to string (The '4' makes the JSON perfectly formatted and readable)
             val jsonString = rootJson.toString(4)
 
             val translationFile = chapterDir.createFile("translation.json")
-            
+
             // Explicit try-finally avoids Kotlin's extension function mismatch bug entirely
             val outputStream: OutputStream? = translationFile?.openOutputStream()
             if (outputStream != null) {
@@ -138,7 +138,6 @@ class ChapterTranslationWorker(
             Result.failure()
         }
     }
-
 
     companion object {
         const val KEY_CHAPTER_ID = "chapter_id"
