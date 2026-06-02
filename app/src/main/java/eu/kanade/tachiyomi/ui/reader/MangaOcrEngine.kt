@@ -236,4 +236,43 @@ class MangaOcrEngine(
         resultMap[0] = TranslationResult(listOf("Chapter Mode Ready!"))
         return@withContext resultMap
     }
+
+
+    companion object {
+        /**
+         * ☁️ Direct HTTP connection to test Gemini API Key (No ONNX models required)
+         */
+        suspend fun testGeminiAPI(testKey: String, message: String): String = withContext(Dispatchers.IO) {
+            try {
+                val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=$testKey")
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "POST"
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.doOutput = true
+
+                val cleanPrompt = message.replace("\n", "\\n").replace("\"", "\\\"")
+                val jsonPayload = "{\"contents\": [{\"parts\": [{\"text\": \"$cleanPrompt\"}]}]}"
+
+                connection.outputStream.use { os ->
+                    os.write(jsonPayload.toByteArray(Charsets.UTF_8))
+                }
+
+                if (connection.responseCode == 200) {
+                    val responseBody = connection.inputStream.bufferedReader().readText()
+                    val jsonObject = JSONObject(responseBody)
+                    val candidates = jsonObject.getJSONArray("candidates")
+                    if (candidates.length() > 0) {
+                        val content = candidates.getJSONObject(0).getJSONObject("content")
+                        val parts = content.getJSONArray("parts")
+                        if (parts.length() > 0) {
+                            return@withContext parts.getJSONObject(0).getString("text").trim()
+                        }
+                    }
+                }
+                return@withContext "API Error: ${connection.responseCode}"
+            } catch (e: Exception) {
+                return@withContext "Error: ${e.message}"
+            }
+        }
+    }
 }
