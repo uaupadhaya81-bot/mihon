@@ -116,11 +116,11 @@ class ChapterTranslationWorker(
             }
             rootJson.put("pages", pagesJson)
 
-                        // Convert to string (The '4' makes the JSON perfectly formatted and readable)
+            // Convert to string (The '4' makes the JSON perfectly formatted and readable)
             val jsonString = rootJson.toString(4)
 
             val translationFile = chapterDir.createFile("translation.json")
-            
+
             // Fix: Separate the stream creation and the .use block to assist Kotlin's type inference
             val outputStream = translationFile?.openOutputStream()
             if (outputStream != null) {
@@ -136,7 +136,6 @@ class ChapterTranslationWorker(
             Result.failure()
         }
     }
-
 
     companion object {
         const val KEY_CHAPTER_ID = "chapter_id"
