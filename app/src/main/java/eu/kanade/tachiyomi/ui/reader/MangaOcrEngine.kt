@@ -74,7 +74,7 @@ class MangaOcrEngine(
     fun ShowModelSizes(modifier: Modifier = Modifier) {
         Text(
             text = "DET model: %.2f MB\nREC model: %.2f MB".format(detModelSizeMb, recModelSizeMb),
-            modifier = modifier
+            modifier = modifier,
         )
     }
 
