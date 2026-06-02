@@ -64,7 +64,7 @@ object TranslateTab : Tab {
         val context = LocalContext.current
         val prefs = remember { context.getSharedPreferences("OcrPrefs", Context.MODE_PRIVATE) }
         val scope = rememberCoroutineScope()
-        
+
         var showApiKeyDialog by remember { mutableStateOf(false) }
         var apiKeyInput by remember { mutableStateOf(prefs.getString("gemini_key", "") ?: "") }
         var testMessageInput by remember { mutableStateOf("") }
@@ -79,7 +79,7 @@ object TranslateTab : Tab {
             withContext(Dispatchers.IO) {
                 val downloadProvider: DownloadProvider = Injekt.get()
                 val list = mutableListOf<DownloadedChapterInfo>()
-                
+
                 val sourceDirs = downloadProvider.downloadsDir?.listFiles() ?: arrayOf()
                 for (sourceDir in sourceDirs) {
                     if (sourceDir.isFile) continue
@@ -94,8 +94,8 @@ object TranslateTab : Tab {
                                 DownloadedChapterInfo(
                                     mangaTitle = mangaDir.name ?: "Unknown Manga",
                                     chapterTitle = chapDir.name ?: "Unknown Chapter",
-                                    isTranslated = hasTranslation
-                                )
+                                    isTranslated = hasTranslation,
+                                ),
                             )
                         }
                     }
@@ -111,12 +111,12 @@ object TranslateTab : Tab {
                 BottomAppBar {
                     Button(
                         onClick = { showApiKeyDialog = true },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     ) {
                         Text("Enter & Test API Key")
                     }
                 }
-            }
+            },
         ) { paddingValues ->
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -130,28 +130,46 @@ object TranslateTab : Tab {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
                     contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(chapters) { chap ->
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = chap.mangaTitle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(text = chap.chapterTitle, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        text = chap.mangaTitle,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = chap.chapterTitle,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
                                 Spacer(modifier = Modifier.width(16.dp))
                                 // Sign-only translation status indicator
                                 if (chap.isTranslated) {
-                                    Icon(Icons.Filled.CheckCircle, contentDescription = "Translated", tint = MaterialTheme.colorScheme.primary)
+                                    Icon(
+                                        Icons.Filled.CheckCircle,
+                                        contentDescription = "Translated",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
                                 } else {
-                                    Icon(Icons.Filled.Pending, contentDescription = "Not Translated", tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                                    Icon(
+                                        Icons.Filled.Pending,
+                                        contentDescription = "Not Translated",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    )
                                 }
                             }
                         }
@@ -171,21 +189,23 @@ object TranslateTab : Tab {
                             value = apiKeyInput,
                             onValueChange = { apiKeyInput = it },
                             label = { Text("Gemini API Key") },
-                            singleLine = true
+                            singleLine = true,
                         )
                         OutlinedTextField(
                             value = testMessageInput,
                             onValueChange = { testMessageInput = it },
-                            label = { Text("Direct Test Message") }
+                            label = { Text("Direct Test Message") },
                         )
                         if (isTesting) {
-                            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp))
+                            CircularProgressIndicator(
+                                modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp),
+                            )
                         } else if (testResponse.isNotEmpty()) {
                             Text(
                                 text = "Reply: $testResponse",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 8.dp)
+                                modifier = Modifier.padding(top = 8.dp),
                             )
                         }
                     }
@@ -207,7 +227,7 @@ object TranslateTab : Tab {
                             }
                         }
                     }) { Text("Test API") }
-                }
+                },
             )
         }
     }

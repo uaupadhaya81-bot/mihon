@@ -237,14 +237,16 @@ class MangaOcrEngine(
         return@withContext resultMap
     }
 
-
     companion object {
         /**
          * ☁️ Direct HTTP connection to test Gemini API Key (No ONNX models required)
          */
         suspend fun testGeminiAPI(testKey: String, message: String): String = withContext(Dispatchers.IO) {
             try {
-                val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=$testKey")
+                val url =
+                    URL(
+                        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=$testKey",
+                    )
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "POST"
                 connection.setRequestProperty("Content-Type", "application/json")
