@@ -510,7 +510,7 @@ fun MangaScreenLargeImpl(
     }
 
     val insetPadding = WindowInsets.systemBars.only(WindowInsetsSides.Horizontal).asPaddingValues()
-    var topBarHeight by remember { mutableIntStateOf(0) }
+    var topBarHeight by remember { androidx.compose.runtime.mutableStateOf(0) }
 
     val chapterListState = rememberLazyListState()
 
