@@ -23,7 +23,7 @@ import java.io.OutputStream
 
 class ChapterTranslationWorker(
     private val context: Context,
-    workerParams: WorkerParameters
+    workerParams: WorkerParameters,
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
@@ -50,19 +50,19 @@ class ChapterTranslationWorker(
 
             val chapter = getChapter.await(chapterId) ?: return@withContext Result.failure()
             val manga = getManga.await(chapter.mangaId) ?: return@withContext Result.failure()
-            
+
             // Fix 1: Convert the Long ID into the actual Source object
             val source = sourceManager.get(manga.source) ?: return@withContext Result.failure()
-            
+
             // Fix 2: Pass all 5 parameters (added chapterUrl = chapter.url)
             val chapterDir: UniFile? = downloadProvider.findChapterDir(
-                chapterName = chapter.name, 
-                chapterScanlator = chapter.scanlator, 
+                chapterName = chapter.name,
+                chapterScanlator = chapter.scanlator,
                 chapterUrl = chapter.url,
-                mangaTitle = manga.title, 
-                source = source
+                mangaTitle = manga.title,
+                source = source,
             )
-            
+
             // Fix 3: Handle nullability explicitly
             if (chapterDir == null || !chapterDir.exists()) {
                 logcat(LogPriority.ERROR) { "TranslationWorker: Chapter not downloaded" }
@@ -74,29 +74,31 @@ class ChapterTranslationWorker(
             val pageTranslations = mutableMapOf<String, PageTranslation>()
 
             // 4. THE PROCESSING LOOP (Find all .jpg, .png, .webp files)
-            val files = safeDir.listFiles()?.filter { 
-                it.name?.endsWith(".jpg", true) == true || 
-                it.name?.endsWith(".png", true) == true || 
-                it.name?.endsWith(".webp", true) == true 
+            val files = safeDir.listFiles()?.filter {
+                it.name?.endsWith(".jpg", true) == true ||
+                    it.name?.endsWith(".png", true) == true ||
+                    it.name?.endsWith(".webp", true) == true
             }?.sortedBy { it.name } ?: emptyList()
 
             for (file in files) {
                 val fileName = file.name ?: continue
-                
+
                 // Load Bitmap safely
                 val inputStream = file.openInputStream()
                 val bitmap = BitmapFactory.decodeStream(inputStream)
                 inputStream.close()
-                
+
                 if (bitmap != null) {
                     // Send to OCR & Gemini
                     val translatedText = engine.processSingleImage(bitmap)
-                    
+
                     // 🔥 CRITICAL: Clear from RAM immediately to prevent crashes 🔥
                     bitmap.recycle()
-                    
+
                     pageTranslations[fileName] = PageTranslation(
-                        blocks = listOf(TranslatedBlock(englishText = translatedText, x = 0f, y = 0f, width = 0f, height = 0f))
+                        blocks = listOf(
+                            TranslatedBlock(englishText = translatedText, x = 0f, y = 0f, width = 0f, height = 0f),
+                        ),
                     )
                 }
             }
