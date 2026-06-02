@@ -8,6 +8,13 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
+import android.widget.Toast
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import eu.kanade.tachiyomi.ui.reader.utils.DbNetMath
 import eu.kanade.tachiyomi.ui.reader.utils.OcrUtils
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +35,12 @@ class MangaOcrEngine(
     private var dictionary: List<String> = emptyList()
     private var initError: String? = null
 
+    // Store model sizes to show on screen natively via Compose State
+    var detModelSizeMb by mutableStateOf(0f)
+        private set
+    var recModelSizeMb by mutableStateOf(0f)
+        private set
+
     data class TranslationResult(val translatedBlocks: List<String>)
 
     init {
@@ -35,9 +48,11 @@ class MangaOcrEngine(
             ortEnv = OrtEnvironment.getEnvironment()
 
             val detModelBytes = context.assets.open("ch_PP-OCRv5_det_infer.ort").use { it.readBytes() }
+            detModelSizeMb = detModelBytes.size / 1024f / 1024f
             detSession = ortEnv?.createSession(detModelBytes, OrtSession.SessionOptions())
 
             val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.ort").use { it.readBytes() }
+            recModelSizeMb = recModelBytes.size / 1024f / 1024f
             recSession = ortEnv?.createSession(recModelBytes, OrtSession.SessionOptions())
 
             dictionary = context.assets.open("ppocrv5_dict.txt").bufferedReader().readLines()
@@ -51,7 +66,16 @@ class MangaOcrEngine(
             }
             initError = details
             Log.e(TAG, details, e)
+            Toast.makeText(context, details, Toast.LENGTH_LONG).show()
         }
+    }
+
+    @Composable
+    fun ShowModelSizes(modifier: Modifier = Modifier) {
+        Text(
+            text = "DET model: %.2f MB\nREC model: %.2f MB".format(detModelSizeMb, recModelSizeMb),
+            modifier = modifier
+        )
     }
 
     suspend fun processSingleImage(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
