@@ -213,7 +213,10 @@ class MangaOcrEngine(
                     )
 
                     try {
-                        appendDebug(sb, "Slice: yOffset=$yOffset height=$currentHeight size=${slice.width}x${slice.height}")
+                        appendDebug(
+                            sb,
+                            "Slice: yOffset=$yOffset height=$currentHeight size=${slice.width}x${slice.height}",
+                        )
 
                         val scaledSlice = OcrUtils.downscaleImageForDetection(slice)
                         appendDebug(sb, "Scaled slice for detection: ${scaledSlice.width}x${scaledSlice.height}")
@@ -259,7 +262,10 @@ class MangaOcrEngine(
                                                         flatProbabilities[idx++] = row[x]
                                                     }
                                                 }
-                                                appendDebug(sb, "Detection parsed: detW=$detW detH=$detH probs=${flatProbabilities.size}")
+                                                appendDebug(
+                                                    sb,
+                                                    "Detection parsed: detW=$detW detH=$detH probs=${flatProbabilities.size}",
+                                                )
                                             } else {
                                                 appendDebug(sb, "Detection parsed but channel was empty.")
                                             }
@@ -349,7 +355,10 @@ class MangaOcrEngine(
                                                         val w = ((box.right - box.left) * scaleX).toInt()
                                                         val h = ((box.bottom - box.top) * scaleY).toInt()
 
-                                                        appendDebug(sb, "[BLOCK:$blockCounter] {x: $absX, y: $absY, w: $w, h: $h}")
+                                                        appendDebug(
+                                                            sb,
+                                                            "[BLOCK:$blockCounter] {x: $absX, y: $absY, w: $w, h: $h}",
+                                                        )
                                                         appendDebug(sb, decodedText)
                                                         appendDebug(sb, "")
                                                         blockCounter++
