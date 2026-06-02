@@ -310,7 +310,7 @@ object HomeScreen : Screen() {
         data object Updates : Tab
         data object History : Tab
         data class Browse(val toExtensions: Boolean = false) : Tab
-        data object Translate : Tab // 🔥 MAP SEALED TABS TO REGISTER GLOBAL NAV INTERFACES 🔥
+        data object Translate : Tab // 🔥 THIS LINE WAS MISSING 🔥
         data class More(val toDownloads: Boolean) : Tab
     }
 }
