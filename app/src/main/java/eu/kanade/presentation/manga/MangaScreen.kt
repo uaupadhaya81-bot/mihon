@@ -32,7 +32,6 @@ import androidx.compose.material3.animateFloatingActionButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -257,7 +256,7 @@ private fun MangaScreenSmallImpl(
     onAllChapterSelected: (Boolean) -> Unit,
     onInvertSelection: () -> Unit,
 ) {
-    val chapterListState = rememberLazyListState()
+    val chapterListState = androidx.compose.foundation.lazy.rememberLazyListState()
 
     val (chapters, listItem, isAnySelected) = remember(state) {
         Triple(
@@ -768,6 +767,7 @@ private fun LazyListScope.sharedChapterItems(
                     } else {
                         item.chapter.name
                     },
+                    chapterId = item.chapter.id, // <--- ADDED THIS PARAMETER TO FIX THE UI CONNECTION
                     date = relativeDateText(item.chapter.dateUpload),
                     readProgress = item.chapter.lastPageRead
                         .takeIf { !item.chapter.read && it > 0L }
