@@ -4,7 +4,8 @@ import android.graphics.BitmapFactory
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import eu.kanade.tachiyomi.data.download.DownloadManager
+import eu.kanade.tachiyomi.data.download.DownloadProvider
+import com.hippo.unifile.UniFile
 import eu.kanade.tachiyomi.ui.reader.MangaOcrEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
