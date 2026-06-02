@@ -9,7 +9,7 @@ import kotlinx.serialization.Serializable
 data class ChapterTranslation(
     val chapterId: Long,
     // Maps the image filename (e.g., "01.jpg") to its translated page data
-    val pages: Map<String, PageTranslation> 
+    val pages: Map<String, PageTranslation>,
 )
 
 /**
@@ -17,7 +17,7 @@ data class ChapterTranslation(
  */
 @Serializable
 data class PageTranslation(
-    val blocks: List<TranslatedBlock>
+    val blocks: List<TranslatedBlock>,
 )
 
 /**
@@ -30,5 +30,5 @@ data class TranslatedBlock(
     val x: Float,
     val y: Float,
     val width: Float,
-    val height: Float
+    val height: Float,
 )

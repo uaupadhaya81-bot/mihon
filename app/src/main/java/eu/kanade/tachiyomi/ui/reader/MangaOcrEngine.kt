@@ -68,7 +68,7 @@ class MangaOcrEngine(
                         // Explicitly cast to the 4D float array returned by PaddleOCR (Batch, Channel, Height, Width)
                         @Suppress("UNCHECKED_CAST")
                         val rawDetArray = detOutputTensor.value as? Array<Array<Array<FloatArray>>>
-                        
+
                         if (rawDetArray != null && rawDetArray.isNotEmpty()) {
                             val batch = rawDetArray[0]
                             if (batch.isNotEmpty()) {
@@ -126,7 +126,7 @@ class MangaOcrEngine(
                             // Explicitly cast to the 3D float array returned by PaddleOCR (Batch, Sequence, Classes)
                             @Suppress("UNCHECKED_CAST")
                             val rawRecArray = recOutputTensor.value as? Array<Array<FloatArray>>
-                            
+
                             if (rawRecArray != null && rawRecArray.isNotEmpty()) {
                                 val batch = rawRecArray[0]
                                 if (batch.isNotEmpty()) {
