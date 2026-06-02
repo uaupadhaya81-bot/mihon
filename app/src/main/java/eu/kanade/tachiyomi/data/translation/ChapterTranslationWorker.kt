@@ -31,13 +31,15 @@ class ChapterTranslationWorker(
         if (chapterId == -1L) return@withContext Result.failure()
 
         try {
-            // 1. Fetch your Gemini API key from Preferences
+            // Read the key securely from the app's internal SharedPreferences
             val prefs = context.getSharedPreferences("OcrPrefs", Context.MODE_PRIVATE)
             val apiKey = prefs.getString("gemini_key", "") ?: ""
+
             if (apiKey.isEmpty()) {
                 logcat(LogPriority.ERROR) { "TranslationWorker: Missing API Key" }
                 return@withContext Result.failure()
             }
+
 
             // 2. Initialize the Engine ONCE for the whole chapter
             val engine = MangaOcrEngine(context, apiKey)
