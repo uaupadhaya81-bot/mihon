@@ -244,20 +244,7 @@ class ReaderActivity : BaseActivity() {
                 }
             }
             .launchIn(lifecycleScope)
-
-        val overlayParams = android.widget.FrameLayout.LayoutParams(
-            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-        ).apply {
-            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.START
-            bottomMargin = 150
-            leftMargin = 50
-        }
-
-        window.addContentView(translateBtn, overlayParams)
-        // --- END OF AI TRANSLATE BUTTON OVERLAY ---
     }
-
     private fun ReaderActivityBinding.setComposeOverlay(): Unit = composeOverlay.setComposeContent {
         val state by viewModel.state.collectAsState()
         val showPageNumber by readerPreferences.showPageNumber.collectAsState()
