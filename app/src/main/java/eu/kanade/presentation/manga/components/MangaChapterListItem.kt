@@ -1,5 +1,6 @@
 package eu.kanade.presentation.manga.components
 
+import android.widget.Toast
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,7 +18,9 @@ import androidx.compose.material.icons.outlined.Done
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FileDownloadOff
 import androidx.compose.material.icons.outlined.RemoveDone
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
@@ -33,10 +36,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.work.Data
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import eu.kanade.tachiyomi.data.download.model.Download
+import eu.kanade.tachiyomi.data.translation.ChapterTranslationWorker
 import me.saket.swipe.SwipeableActionsBox
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.i18n.MR
@@ -48,6 +56,7 @@ import tachiyomi.presentation.core.util.selectedBackground
 @Composable
 fun MangaChapterListItem(
     title: String,
+    chapterId: Long, // <--- Added the Chapter ID parameter so we can send it to the AI Worker
     date: String?,
     readProgress: String?,
     scanlator: String?,
@@ -168,6 +177,31 @@ fun MangaChapterListItem(
                             )
                         }
                     }
+                }
+            }
+
+            // --- NEW: AI TRANSLATE BUTTON ---
+            // Only shows up if the chapter is fully downloaded to the device
+            if (downloadStateProvider() == Download.State.DOWNLOADED) {
+                val context = LocalContext.current
+                IconButton(
+                    onClick = {
+                        val inputData = Data.Builder()
+                            .putLong(ChapterTranslationWorker.KEY_CHAPTER_ID, chapterId)
+                            .build()
+                        val request = OneTimeWorkRequestBuilder<ChapterTranslationWorker>()
+                            .setInputData(inputData)
+                            .build()
+                        WorkManager.getInstance(context).enqueue(request)
+                        Toast.makeText(context, "AI Translation started in background...", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.padding(start = 4.dp).align(Alignment.CenterVertically)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Translate,
+                        contentDescription = "AI Translate",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
 
