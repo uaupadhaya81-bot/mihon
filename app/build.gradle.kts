@@ -23,6 +23,11 @@ if (Config.includeTelemetry) {
 android {
     namespace = "eu.kanade.tachiyomi"
 
+    // 👇 THIS IS THE FIX: Prevents Android from corrupting your ORT files
+    androidResources {
+        noCompress.add("ort")
+    }
+
     defaultConfig {
         applicationId = "app.mihon"
 
