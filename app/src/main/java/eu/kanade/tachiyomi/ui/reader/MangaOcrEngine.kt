@@ -295,7 +295,7 @@ class MangaOcrEngine(
     }
 
     private fun decodeRecognitionArray(sequence: Array<FloatArray>): String {
-        val sb = java.lang.StringBuilder()
+        val sb = StringBuilder()
         var lastIndex = -1
         for (timeStep in sequence) {
             var maxProb = -1f
@@ -315,7 +315,7 @@ class MangaOcrEngine(
     }
 
     private fun buildMegaPrompt(japaneseBlocks: List<String>): String {
-        val sb = java.lang.StringBuilder()
+        val sb = StringBuilder()
         sb.append(
             "You are an elite manga translator. Translate the following Japanese " +
                 "text blocks to English. Keep each block separated:\n\n",
