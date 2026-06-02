@@ -35,15 +35,20 @@ object OcrUtils {
         val pixels = IntArray(width * height)
         bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
-        for (pixel in pixels) {
-            val r = ((pixel shr 16) and 0xFF) / 255.0f
-            val g = ((pixel shr 8) and 0xFF) / 255.0f
-            val b = (pixel and 0xFF) / 255.0f
-
-            floatBuffer.put(r)
-            floatBuffer.put(g)
-            floatBuffer.put(b)
+        for (c in 0 until 3) {
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    val pixel = pixels[y * width + x]
+                    val value = when (c) {
+                        0 -> ((pixel shr 16) and 0xFF) / 255.0f
+                        1 -> ((pixel shr 8) and 0xFF) / 255.0f
+                        else -> (pixel and 0xFF) / 255.0f
+                    }
+                    floatBuffer.put(value)
+                }
+            }
         }
+
         floatBuffer.rewind()
         return floatBuffer
     }
