@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.navigator.Navigator
 import cafe.adriel.voyager.navigator.tab.TabOptions
+import com.hippo.unifile.UniFile
 import eu.kanade.presentation.util.Tab
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.reader.MangaOcrEngine
@@ -107,7 +108,12 @@ object TranslateTab : Tab {
                 val downloadProvider: DownloadProvider = Injekt.get()
                 val list = mutableListOf<DownloadedChapterInfo>()
                 
-                val sourceDirs = downloadProvider.downloadsDir?.listFiles() ?: arrayOf()
+                // 🔥 Bypass the 'private' visibility restriction on downloadsDir safely using Java Reflection
+                val field = downloadProvider.javaClass.getDeclaredField("downloadsDir")
+                field.isAccessible = true
+                val downloadsDir = field.get(downloadProvider) as? UniFile
+                
+                val sourceDirs = downloadsDir?.listFiles() ?: arrayOf()
                 for (sourceDir in sourceDirs) {
                     if (sourceDir.isFile) continue
                     val mangaDirs = sourceDir.listFiles() ?: arrayOf()
