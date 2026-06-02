@@ -195,12 +195,12 @@ fun MangaChapterListItem(
                         WorkManager.getInstance(context).enqueue(request)
                         Toast.makeText(context, "AI Translation started in background...", Toast.LENGTH_SHORT).show()
                     },
-                    modifier = Modifier.padding(start = 4.dp).align(Alignment.CenterVertically)
+                    modifier = Modifier.padding(start = 4.dp).align(Alignment.CenterVertically),
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Translate,
                         contentDescription = "AI Translate",
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
