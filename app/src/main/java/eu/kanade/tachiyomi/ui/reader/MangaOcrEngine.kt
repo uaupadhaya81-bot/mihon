@@ -196,9 +196,10 @@ class MangaOcrEngine(
      */
     private fun sendToGemini(prompt: String): String {
         try {
+            // 🔥 UPDATED ENDPOINT TO USE GEMINI 3.1 FLASH-LITE BATCH CONFIGURATION 🔥
             val url =
                 URL(
-                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey",
+                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=$apiKey",
                 )
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
