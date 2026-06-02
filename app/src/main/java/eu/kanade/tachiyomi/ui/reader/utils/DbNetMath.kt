@@ -12,7 +12,7 @@ object DbNetMath {
         probabilityGrid: FloatArray,
         width: Int,
         height: Int,
-        threshold: Float = 0.3f,
+        threshold: Float = 0.18f,
     ): List<Rect> {
         val boxes = mutableListOf<Rect>()
         val visited = BooleanArray(width * height)
@@ -25,7 +25,7 @@ object DbNetMath {
                 if (!visited[index] && probabilityGrid[index] > threshold) {
                     val box = traceContourBFS(probabilityGrid, visited, x, y, width, height, threshold)
                     // Filter out tiny dots that are just noise
-                    if (box.width() > 10 && box.height() > 10) {
+                    if (box.width() > 5 && box.height() > 5) {
                         boxes.add(box)
                     }
                 }
