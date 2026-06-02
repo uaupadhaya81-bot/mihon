@@ -43,7 +43,7 @@ class MangaOcrEngine(
     }
 
     /**
-     * 📸 Process a single image (Bulletproof Array Unpacking Version)
+     * 📸 Process a single image (Strongly-Typed Array Version)
      */
     suspend fun processSingleImage(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
         try {
@@ -63,27 +63,26 @@ class MangaOcrEngine(
                 val detResults = detSession?.run(Collections.singletonMap(inputName, tensor))
 
                 detResults?.use { results ->
-                    // Safely extract the raw value without triggering getShape()
                     val detOutputTensor = results.iterator().next().value as? OnnxTensor
                     if (detOutputTensor != null) {
-                        // Recursively unpack the raw Java Object to bypass Kotlin Cast Exceptions
-                        val rawDetArray = detOutputTensor.value as? Array<*>
+                        // Explicitly cast to the 4D float array returned by PaddleOCR (Batch, Channel, Height, Width)
+                        @Suppress("UNCHECKED_CAST")
+                        val rawDetArray = detOutputTensor.value as? Array<Array<Array<FloatArray>>>
+                        
                         if (rawDetArray != null && rawDetArray.isNotEmpty()) {
-                            val batch = rawDetArray[0] as? Array<*>
-                            if (batch != null && batch.isNotEmpty()) {
-                                val channel = batch[0] as? Array<*>
-                                if (channel != null && channel.isNotEmpty()) {
+                            val batch = rawDetArray[0]
+                            if (batch.isNotEmpty()) {
+                                val channel = batch[0]
+                                if (channel.isNotEmpty()) {
                                     detH = channel.size
-                                    detW = (channel[0] as? FloatArray)?.size ?: 0
+                                    detW = channel[0].size
 
                                     flatProbabilities = FloatArray(detW * detH)
                                     var idx = 0
                                     for (y in 0 until detH) {
-                                        val row = channel[y] as? FloatArray
-                                        if (row != null) {
-                                            for (x in 0 until detW) {
-                                                flatProbabilities[idx++] = row[x]
-                                            }
+                                        val row = channel[y]
+                                        for (x in 0 until detW) {
+                                            flatProbabilities[idx++] = row[x]
                                         }
                                     }
                                 }
@@ -124,10 +123,13 @@ class MangaOcrEngine(
                     recResults?.use { recRes ->
                         val recOutputTensor = recRes.iterator().next().value as? OnnxTensor
                         if (recOutputTensor != null) {
-                            val rawRecArray = recOutputTensor.value as? Array<*>
+                            // Explicitly cast to the 3D float array returned by PaddleOCR (Batch, Sequence, Classes)
+                            @Suppress("UNCHECKED_CAST")
+                            val rawRecArray = recOutputTensor.value as? Array<Array<FloatArray>>
+                            
                             if (rawRecArray != null && rawRecArray.isNotEmpty()) {
-                                val batch = rawRecArray[0] as? Array<*>
-                                if (batch != null && batch.isNotEmpty()) {
+                                val batch = rawRecArray[0]
+                                if (batch.isNotEmpty()) {
                                     val decodedText = decodeRecognitionArray(batch)
                                     if (decodedText.isNotBlank()) {
                                         japaneseTextBlocks.add(decodedText)
@@ -152,12 +154,11 @@ class MangaOcrEngine(
     /**
      * 📖 Translates raw sequential float arrays into Kanji characters
      */
-    private fun decodeRecognitionArray(sequence: Array<*>): String {
+    private fun decodeRecognitionArray(sequence: Array<FloatArray>): String {
         val sb = java.lang.StringBuilder()
         var lastIndex = -1
 
-        for (timeStepObj in sequence) {
-            val timeStep = timeStepObj as? FloatArray ?: continue
+        for (timeStep in sequence) {
             var maxProb = -1f
             var maxIdx = -1
 
