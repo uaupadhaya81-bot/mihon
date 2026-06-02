@@ -1,5 +1,4 @@
 package eu.kanade.tachiyomi.data.translation
-import eu.kanade.tachiyomi.source.SourceManager
 import android.content.Context
 import android.graphics.BitmapFactory
 import androidx.work.CoroutineWorker
@@ -7,6 +6,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.hippo.unifile.UniFile
 import eu.kanade.tachiyomi.data.download.DownloadProvider
+import eu.kanade.tachiyomi.source.SourceManager
 import eu.kanade.tachiyomi.ui.reader.MangaOcrEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -49,18 +49,17 @@ class ChapterTranslationWorker(
 
             val chapter = getChapter.await(chapterId) ?: return@withContext Result.failure()
             val manga = getManga.await(chapter.mangaId) ?: return@withContext Result.failure()
-            
+
             // Fix: Convert the Long ID into the actual Source object
             val source = sourceManager.get(manga.source) ?: return@withContext Result.failure()
-            
+
             // Fix: Pass the source object using explicit named parameters so it cannot fail
             val chapterDir: UniFile? = downloadProvider.findChapterDir(
-                chapterName = chapter.name, 
-                chapterScanlator = chapter.scanlator, 
-                mangaTitle = manga.title, 
-                source = source
+                chapterName = chapter.name,
+                chapterScanlator = chapter.scanlator,
+                mangaTitle = manga.title,
+                source = source,
             )
-
 
             if (chapterDir == null || !chapterDir.exists()) {
                 logcat(LogPriority.ERROR) { "TranslationWorker: Chapter not downloaded" }
