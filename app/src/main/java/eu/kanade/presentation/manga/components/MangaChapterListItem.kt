@@ -1,5 +1,6 @@
 package eu.kanade.presentation.manga.components
 
+import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,16 +20,20 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FileDownloadOff
 import androidx.compose.material.icons.outlined.RemoveDone
 import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,7 +61,7 @@ import tachiyomi.presentation.core.util.selectedBackground
 @Composable
 fun MangaChapterListItem(
     title: String,
-    chapterId: Long, // <--- Added the Chapter ID parameter so we can send it to the AI Worker
+    chapterId: Long,
     date: String?,
     readProgress: String?,
     scanlator: String?,
@@ -90,6 +95,37 @@ fun MangaChapterListItem(
         background = MaterialTheme.colorScheme.primaryContainer,
         onSwipe = { onChapterSwipe(chapterSwipeEndAction) },
     )
+
+    // --- API Key Dialog State Logic ---
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("OcrPrefs", Context.MODE_PRIVATE) }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
+    var apiKeyInput by remember { mutableStateOf("") }
+
+    if (showApiKeyDialog) {
+        AlertDialog(
+            onDismissRequest = { showApiKeyDialog = false },
+            title = { Text("Gemini API Key Required") },
+            text = {
+                OutlinedTextField(
+                    value = apiKeyInput,
+                    onValueChange = { apiKeyInput = it },
+                    label = { Text("Paste API Key here") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    prefs.edit().putString("gemini_key", apiKeyInput).apply()
+                    showApiKeyDialog = false
+                    Toast.makeText(context, "Key Saved! Tap Translate again to start.", Toast.LENGTH_SHORT).show()
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showApiKeyDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
 
     SwipeableActionsBox(
         modifier = Modifier.clipToBounds(),
@@ -180,27 +216,32 @@ fun MangaChapterListItem(
                 }
             }
 
-            // --- NEW: AI TRANSLATE BUTTON ---
-            // Only shows up if the chapter is fully downloaded to the device
+            // --- AI TRANSLATE BUTTON WITH SECURE KEY CHECK ---
             if (downloadStateProvider() == Download.State.DOWNLOADED) {
-                val context = LocalContext.current
                 IconButton(
                     onClick = {
-                        val inputData = Data.Builder()
-                            .putLong(ChapterTranslationWorker.KEY_CHAPTER_ID, chapterId)
-                            .build()
-                        val request = OneTimeWorkRequestBuilder<ChapterTranslationWorker>()
-                            .setInputData(inputData)
-                            .build()
-                        WorkManager.getInstance(context).enqueue(request)
-                        Toast.makeText(context, "AI Translation started in background...", Toast.LENGTH_SHORT).show()
+                        val currentKey = prefs.getString("gemini_key", "") ?: ""
+                        if (currentKey.isEmpty()) {
+                            // Trigger the secure popup dialog
+                            showApiKeyDialog = true
+                        } else {
+                            // Key exists, launch the worker!
+                            val inputData = Data.Builder()
+                                .putLong(ChapterTranslationWorker.KEY_CHAPTER_ID, chapterId)
+                                .build()
+                            val request = OneTimeWorkRequestBuilder<ChapterTranslationWorker>()
+                                .setInputData(inputData)
+                                .build()
+                            WorkManager.getInstance(context).enqueue(request)
+                            Toast.makeText(context, "AI Translation started in background...", Toast.LENGTH_SHORT).show()
+                        }
                     },
-                    modifier = Modifier.padding(start = 4.dp).align(Alignment.CenterVertically),
+                    modifier = Modifier.padding(start = 4.dp).align(Alignment.CenterVertically)
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Translate,
                         contentDescription = "AI Translate",
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
             }
