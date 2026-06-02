@@ -146,7 +146,7 @@ class PagerPageHolder(
                     pageBackground = background
                 }
                 removeErrorLayout()
-                
+
                 // 🔥 OUR NEW CHORE: Load and inject translation script layer if available! 🔥
                 loadTranslationOverlay()
             }
@@ -190,8 +190,8 @@ class PagerPageHolder(
             // Sort files using the exact sequence index structure of our background loop
             val files = chapterDir.listFiles()?.filter {
                 it.name?.endsWith(".jpg", true) == true ||
-                it.name?.endsWith(".png", true) == true ||
-                it.name?.endsWith(".webp", true) == true
+                    it.name?.endsWith(".png", true) == true ||
+                    it.name?.endsWith(".webp", true) == true
             }?.sortedBy { it.name } ?: emptyList()
 
             if (page.number !in files.indices) return
@@ -261,8 +261,10 @@ class PagerPageHolder(
             }
             overlayLayout.addView(toggleButton, buttonParams)
 
-            addView(overlayLayout, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-
+            addView(
+                overlayLayout,
+                FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT),
+            )
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e) { "Failed to inject translation overlay" }
         }
