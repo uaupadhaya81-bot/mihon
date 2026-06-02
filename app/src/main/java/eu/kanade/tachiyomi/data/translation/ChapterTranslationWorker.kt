@@ -87,17 +87,36 @@ class ChapterTranslationWorker(
             }
 
             // 5. Serialize and save to translation.json inside the chapter folder
-            val finalTranslation = ChapterTranslation(
-                chapterId = chapterId,
-                pages = pageTranslations
-            )
+                        // 5. Serialize and save to translation.json inside the chapter folder
+            val rootJson = JSONObject()
+            rootJson.put("chapterId", chapterId)
+
+            val pagesJson = JSONObject()
+            for ((fileName, pageData) in pageTranslations) {
+                val blocksArray = JSONArray()
+                for (block in pageData.blocks) {
+                    val blockJson = JSONObject()
+                    blockJson.put("englishText", block.englishText)
+                    blockJson.put("x", block.x.toDouble())
+                    blockJson.put("y", block.y.toDouble())
+                    blockJson.put("width", block.width.toDouble())
+                    blockJson.put("height", block.height.toDouble())
+                    blocksArray.put(blockJson)
+                }
+                val pageObj = JSONObject()
+                pageObj.put("blocks", blocksArray)
+                pagesJson.put(fileName, pageObj)
+            }
+            rootJson.put("pages", pagesJson)
+
+            // Convert to string (The '4' makes the JSON perfectly formatted and readable)
+            val jsonString = rootJson.toString(4) 
             
-            val jsonString = Json.encodeToString(finalTranslation)
             val translationFile = chapterDir.createFile("translation.json")
-            
             translationFile?.openOutputStream()?.use { os ->
                 os.write(jsonString.toByteArray(Charsets.UTF_8))
             }
+            
 
             logcat(LogPriority.INFO) { "TranslationWorker: Chapter $chapterId translated successfully!" }
             Result.success()
