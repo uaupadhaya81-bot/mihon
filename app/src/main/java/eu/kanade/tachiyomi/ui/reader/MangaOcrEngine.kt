@@ -26,29 +26,23 @@ class MangaOcrEngine(
     private var detSession: OrtSession? = null
     private var recSession: OrtSession? = null
     private var dictionary: List<String> = emptyList()
+    private var initError: String? = null
 
     data class TranslationResult(val translatedBlocks: List<String>)
 
     init {
         try {
             ortEnv = OrtEnvironment.getEnvironment()
-            Log.d(TAG, "ORT environment created")
 
             val detModelBytes = context.assets.open("ch_PP-OCRv5_det_infer.onnx").use { it.readBytes() }
-            Log.d(TAG, "Detection model bytes loaded: ${detModelBytes.size}")
             detSession = ortEnv?.createSession(detModelBytes, OrtSession.SessionOptions())
-            Log.d(TAG, "Detection session created: ${detSession != null}")
 
             val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.onnx").use { it.readBytes() }
-            Log.d(TAG, "Recognition model bytes loaded: ${recModelBytes.size}")
             recSession = ortEnv?.createSession(recModelBytes, OrtSession.SessionOptions())
-            Log.d(TAG, "Recognition session created: ${recSession != null}")
 
             dictionary = context.assets.open("ppocrv5_dict.txt").bufferedReader().readLines()
-            Log.d(TAG, "Dictionary loaded: ${dictionary.size} entries")
         } catch (e: Exception) {
-            Log.e(TAG, "OCR engine init failed", e)
-            e.printStackTrace()
+            initError = e.stackTraceToString()
         }
     }
 
@@ -173,6 +167,10 @@ class MangaOcrEngine(
         context: Context,
         uris: List<Uri>,
     ): String = withContext(Dispatchers.IO) {
+        if (initError != null) {
+            return@withContext initError!!
+        }
+
         val sb = StringBuilder()
 
         try {
