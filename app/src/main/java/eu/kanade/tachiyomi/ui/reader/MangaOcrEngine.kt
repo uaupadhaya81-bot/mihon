@@ -34,10 +34,10 @@ class MangaOcrEngine(
         try {
             ortEnv = OrtEnvironment.getEnvironment()
 
-            val detModelBytes = context.assets.open("ch_PP-OCRv5_det_infer.onnx").use { it.readBytes() }
+            val detModelBytes = context.assets.open("ch_PP-OCRv5_det_infer.ort").use { it.readBytes() }
             detSession = ortEnv?.createSession(detModelBytes, OrtSession.SessionOptions())
 
-            val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.onnx").use { it.readBytes() }
+            val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.ort").use { it.readBytes() }
             recSession = ortEnv?.createSession(recModelBytes, OrtSession.SessionOptions())
 
             dictionary = context.assets.open("ppocrv5_dict.txt").bufferedReader().readLines()
