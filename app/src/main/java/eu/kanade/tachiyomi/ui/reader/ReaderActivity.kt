@@ -140,7 +140,7 @@ class ReaderActivity : BaseActivity() {
     var isScrollingThroughPages = false
         private set
 
-    
+    /**
      * Called when the activity is created. Initializes the presenter and configuration.
      */
     override fun onCreate(savedInstanceState: Bundle?) {
