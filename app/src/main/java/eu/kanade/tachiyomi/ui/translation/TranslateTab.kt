@@ -1,400 +1,412 @@
-package eu.kanade.tachiyomi.ui.reader
+package eu.kanade.tachiyomi.ui.translation
 
-import ai.onnxruntime.OnnxTensor
-import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
-import eu.kanade.tachiyomi.ui.reader.utils.DbNetMath
-import eu.kanade.tachiyomi.ui.reader.utils.OcrUtils
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Pending
+import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import cafe.adriel.voyager.navigator.Navigator
+import cafe.adriel.voyager.navigator.tab.TabOptions
+import com.hippo.unifile.UniFile
+import eu.kanade.presentation.util.Tab as CoreTab
+import eu.kanade.tachiyomi.data.download.DownloadProvider
+import eu.kanade.tachiyomi.ui.reader.MangaOcrEngine
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
-import java.util.Collections
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
-class MangaOcrEngine(
-    private val context: Context,
-    private val apiKey: String,
-) {
-    private var ortEnv: OrtEnvironment? = null
-    private var detSession: OrtSession? = null
-    private var recSession: OrtSession? = null
-    private var dictionary: List<String> = emptyList()
+data class DownloadedChapterInfo(
+    val mangaTitle: String,
+    val chapterTitle: String,
+    val isTranslated: Boolean,
+)
 
-    data class TranslationResult(val translatedBlocks: List<String>)
+object TranslateTab : CoreTab {
 
-    init {
-        try {
-            ortEnv = OrtEnvironment.getEnvironment()
-
-            val detModelBytes = context.assets.open("ch_PP-OCRv5_det_infer.onnx").readBytes()
-            detSession = ortEnv?.createSession(detModelBytes, OrtSession.SessionOptions())
-
-            val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.onnx").readBytes()
-            recSession = ortEnv?.createSession(recModelBytes, OrtSession.SessionOptions())
-
-            dictionary = context.assets.open("ppocr_keys_v1.txt").bufferedReader().readLines()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    suspend fun processSingleImage(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
-        try {
-            val scaledBitmap = OcrUtils.downscaleImageForDetection(bitmap)
-            val floatBuffer = OcrUtils.bitmapToFloatBuffer(scaledBitmap)
-            val shape = longArrayOf(
-                1, 3, 
-                scaledBitmap.height.toLong(), 
-                scaledBitmap.width.toLong()
-            )
-
-            var detW = scaledBitmap.width
-            var detH = scaledBitmap.height
-            var flatProbabilities = FloatArray(0)
-
-            OnnxTensor.createTensor(ortEnv, floatBuffer, shape).use { tensor ->
-                val inputName = detSession?.inputNames?.iterator()?.next()
-                val detMap = Collections.singletonMap(inputName, tensor)
-                val detResults = detSession?.run(detMap)
-
-                detResults?.use { results ->
-                    val detOutputTensor = results.iterator().next().value as? OnnxTensor
-                    if (detOutputTensor != null) {
-                        @Suppress("UNCHECKED_CAST")
-                        val rawDetArray = detOutputTensor.value as? 
-                            Array<Array<Array<FloatArray>>>
-                        
-                        if (rawDetArray != null && rawDetArray.isNotEmpty()) {
-                            val batch = rawDetArray[0]
-                            if (batch.isNotEmpty()) {
-                                val channel = batch[0]
-                                if (channel.isNotEmpty()) {
-                                    detH = channel.size
-                                    detW = channel[0].size
-                                    flatProbabilities = FloatArray(detW * detH)
-                                    var idx = 0
-                                    for (y in 0 until detH) {
-                                        val row = channel[y]
-                                        for (x in 0 until detW) {
-                                            flatProbabilities[idx++] = row[x]
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (flatProbabilities.isEmpty()) return@withContext "Failed to parse detection output."
-            val scaleX = bitmap.width.toFloat() / detW
-            val scaleY = bitmap.height.toFloat() / detH
-            val boxes = DbNetMath.extractBoundingBoxes(flatProbabilities, detW, detH)
-            if (boxes.isEmpty()) return@withContext "No text found in this image."
-
-            val japaneseTextBlocks = mutableListOf<String>()
-            val recInputName = recSession?.inputNames?.iterator()?.next()
-
-            for (box in boxes) {
-                val croppedBubble = OcrUtils.cropBubble(bitmap, box, scaleX, scaleY)
-                val recHeight = 48
-                val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight)
-                    .toInt().coerceAtLeast(1)
-                
-                val recBitmap = Bitmap.createScaledBitmap(
-                    croppedBubble, recWidth, recHeight, true
+    override val options: TabOptions
+        @Composable
+        get() {
+            val title = "Translate"
+            val icon = rememberVectorPainter(Icons.Outlined.Translate)
+            return remember {
+                TabOptions(
+                    index = 5u,
+                    title = title,
+                    icon = icon,
                 )
-                val recBufferIn = OcrUtils.bitmapToFloatBuffer(recBitmap)
-                val recShapeIn = longArrayOf(1, 3, recHeight.toLong(), recWidth.toLong())
+            }
+        }
 
-                OnnxTensor.createTensor(ortEnv, recBufferIn, recShapeIn).use { recTensor ->
-                    val recMap = Collections.singletonMap(recInputName, recTensor)
-                    val recResults = recSession?.run(recMap)
-                    
-                    recResults?.use { recRes ->
-                        val recOutputTensor = recRes.iterator().next().value as? OnnxTensor
-                        if (recOutputTensor != null) {
-                            @Suppress("UNCHECKED_CAST")
-                            val rawRecArray = recOutputTensor.value as? Array<Array<FloatArray>>
-                            if (rawRecArray != null && rawRecArray.isNotEmpty()) {
-                                val batch = rawRecArray[0]
-                                if (batch.isNotEmpty()) {
-                                    val decodedText = decodeRecognitionArray(batch)
-                                    if (decodedText.isNotBlank()) {
-                                        japaneseTextBlocks.add(decodedText)
-                                    }
-                                }
-                            }
-                        }
+    override suspend fun onReselect(navigator: Navigator) {}
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    override fun Content() {
+        var selectedTabIndex by remember { mutableIntStateOf(0) }
+
+        Scaffold(
+            topBar = {
+                Column {
+                    TopAppBar(title = { Text("AI Translations") })
+                    TabRow(selectedTabIndex = selectedTabIndex) {
+                        Tab(
+                            selected = selectedTabIndex == 0,
+                            onClick = { selectedTabIndex = 0 },
+                            text = { Text("Dashboard") }
+                        )
+                        Tab(
+                            selected = selectedTabIndex == 1,
+                            onClick = { selectedTabIndex = 1 },
+                            text = { Text("Local OCR Tester") }
+                        )
                     }
                 }
             }
-
-            if (japaneseTextBlocks.isEmpty()) return@withContext "Failed to extract text."
-            val prompt = buildMegaPrompt(japaneseTextBlocks)
-            return@withContext sendToGemini(prompt)
-        } catch (e: Exception) {
-            return@withContext "Engine Error: ${e.message}"
+        ) { paddingValues ->
+            Box(
+                modifier = Modifier
+                    .padding(paddingValues)
+                    .fillMaxSize()
+            ) {
+                if (selectedTabIndex == 0) {
+                    DashboardSection()
+                } else {
+                    OcrDiagnosticSection()
+                }
+            }
         }
     }
 
-    suspend fun runLocalOcrTest(
-        context: Context, 
-        uris: List<Uri>
-    ): String = withContext(Dispatchers.IO) {
-        val sb = StringBuilder()
+    @Composable
+    fun DashboardSection() {
+        val context = LocalContext.current
+        val prefs = remember { context.getSharedPreferences("OcrPrefs", Context.MODE_PRIVATE) }
+        val scope = rememberCoroutineScope()
         
-        try {
-            uris.forEachIndexed { index, uri ->
-                val pageName = "PAGE_${index + 1}"
-                sb.append("========================\n[$pageName]\n========================\n")
+        var showApiKeyDialog by remember { mutableStateOf(false) }
+        var apiKeyInput by remember { mutableStateOf(prefs.getString("gemini_key", "") ?: "") }
+        var testMessageInput by remember { mutableStateOf("") }
+        var testResponse by remember { mutableStateOf("") }
+        var isTesting by remember { mutableStateOf(false) }
+
+        var chapters by remember { mutableStateOf<List<DownloadedChapterInfo>>(emptyList()) }
+        var isLoading by remember { mutableStateOf(true) }
+
+        LaunchedEffect(Unit) {
+            withContext(Dispatchers.IO) {
+                val downloadProvider: DownloadProvider = Injekt.get()
+                val list = mutableListOf<DownloadedChapterInfo>()
                 
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val bitmap = BitmapFactory.decodeStream(inputStream)
-                inputStream?.close()
-                
-                if (bitmap == null) {
-                    sb.append("Error: Failed to load picture into memory.\n\n")
-                    return@forEachIndexed
+                var downloadsDir: UniFile? = null
+                try {
+                    val method = downloadProvider.javaClass.getDeclaredMethod("getDownloadsDir")
+                    method.isAccessible = true
+                    downloadsDir = method.invoke(downloadProvider) as? UniFile
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-
-                val sliceMaxHeight = 2048
-                var yOffset = 0
-                var blockCounter = 1
-
-                while (yOffset < bitmap.height) {
-                    val currentHeight = minOf(sliceMaxHeight, bitmap.height - yOffset)
-                    val slice = Bitmap.createBitmap(
-                        bitmap, 0, yOffset, bitmap.width, currentHeight
-                    )
-                    
-                    val scaledSlice = OcrUtils.downscaleImageForDetection(slice)
-                    val floatBuffer = OcrUtils.bitmapToFloatBuffer(scaledSlice)
-                    val shape = longArrayOf(
-                        1, 3, 
-                        scaledSlice.height.toLong(), 
-                        scaledSlice.width.toLong()
-                    )
-
-                    var detW = scaledSlice.width
-                    var detH = scaledSlice.height
-                    var flatProbabilities = FloatArray(0)
-
-                    OnnxTensor.createTensor(ortEnv, floatBuffer, shape).use { tensor ->
-                        val inputName = detSession?.inputNames?.iterator()?.next()
-                        val detMap = Collections.singletonMap(inputName, tensor)
-                        val detResults = detSession?.run(detMap)
-
-                        detResults?.use { results ->
-                            val detOutputTensor = results.iterator().next().value as? OnnxTensor
-                            if (detOutputTensor != null) {
-                                @Suppress("UNCHECKED_CAST")
-                                val rawDetArray = detOutputTensor.value as? 
-                                    Array<Array<Array<FloatArray>>>
-                                
-                                if (rawDetArray != null && rawDetArray.isNotEmpty()) {
-                                    val batch = rawDetArray[0]
-                                    if (batch.isNotEmpty()) {
-                                        val channel = batch[0]
-                                        if (channel.isNotEmpty()) {
-                                            detH = channel.size
-                                            detW = channel[0].size
-                                            flatProbabilities = FloatArray(detW * detH)
-                                            var idx = 0
-                                            for (y in 0 until detH) {
-                                                val row = channel[y]
-                                                for (x in 0 until detW) {
-                                                    flatProbabilities[idx++] = row[x]
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (flatProbabilities.isNotEmpty()) {
-                        val scaleX = slice.width.toFloat() / detW
-                        val scaleY = slice.height.toFloat() / detH
-                        val boxes = DbNetMath.extractBoundingBoxes(flatProbabilities, detW, detH)
-                        val recInputName = recSession?.inputNames?.iterator()?.next()
-
-                        for (box in boxes) {
-                            val croppedBubble = OcrUtils.cropBubble(slice, box, scaleX, scaleY)
-                            val recHeight = 48
-                            val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight)
-                                .toInt().coerceAtLeast(1)
-                            
-                            val recBitmap = Bitmap.createScaledBitmap(
-                                croppedBubble, recWidth, recHeight, true
+                
+                val sourceDirs = downloadsDir?.listFiles() ?: arrayOf()
+                for (sourceDir in sourceDirs) {
+                    if (sourceDir.isFile) continue
+                    val mangaDirs = sourceDir.listFiles() ?: arrayOf()
+                    for (mangaDir in mangaDirs) {
+                        if (mangaDir.isFile) continue
+                        val chapDirs = mangaDir.listFiles() ?: arrayOf()
+                        for (chapDir in chapDirs) {
+                            if (chapDir.isFile) continue
+                            val hasTranslation = chapDir.findFile("translation.json")?.exists() == true
+                            list.add(
+                                DownloadedChapterInfo(
+                                    mangaTitle = mangaDir.name ?: "Unknown Manga",
+                                    chapterTitle = chapDir.name ?: "Unknown Chapter",
+                                    isTranslated = hasTranslation
+                                )
                             )
-                            val recBufferIn = OcrUtils.bitmapToFloatBuffer(recBitmap)
-                            val recShapeIn = longArrayOf(1, 3, recHeight.toLong(), recWidth.toLong())
+                        }
+                    }
+                }
+                chapters = list
+                isLoading = false
+            }
+        }
 
-                            OnnxTensor.createTensor(ortEnv, recBufferIn, recShapeIn).use { recTensor ->
-                                val recMap = Collections.singletonMap(recInputName, recTensor)
-                                val recResults = recSession?.run(recMap)
-                                
-                                recResults?.use { recRes ->
-                                    val recOut = recRes.iterator().next().value as? OnnxTensor
-                                    if (recOut != null) {
-                                        @Suppress("UNCHECKED_CAST")
-                                        val rawRecArray = recOut.value as? Array<Array<FloatArray>>
-                                        if (rawRecArray != null && rawRecArray.isNotEmpty()) {
-                                            val batch = rawRecArray[0]
-                                            if (batch.isNotEmpty()) {
-                                                val decodedText = decodeRecognitionArray(batch)
-                                                if (decodedText.isNotBlank()) {
-                                                    val absY = (box.top * scaleY).toInt() + yOffset
-                                                    val absX = (box.left * scaleX).toInt()
-                                                    val w = ((box.right - box.left) * scaleX).toInt()
-                                                    val h = ((box.bottom - box.top) * scaleY).toInt()
-                                                    
-                                                    sb.append("[BLOCK:$blockCounter] ")
-                                                    sb.append("{x: $absX, y: $absY, w: $w, h: $h}\n")
-                                                    sb.append("$decodedText\n\n")
-                                                    blockCounter++
-                                                }
-                                            }
-                                        }
-                                    }
+        Scaffold(
+            bottomBar = {
+                BottomAppBar {
+                    Button(
+                        onClick = { showApiKeyDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Text("Enter & Test API Key")
+                    }
+                }
+            }
+        ) { innerPadding ->
+            if (isLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(), 
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else if (chapters.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(), 
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No downloaded chapters found.", 
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(chapters) { chap ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = chap.mangaTitle, 
+                                        fontWeight = FontWeight.Bold, 
+                                        maxLines = 1, 
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = chap.chapterTitle, 
+                                        style = MaterialTheme.typography.bodySmall, 
+                                        maxLines = 1, 
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(16.dp))
+                                if (chap.isTranslated) {
+                                    Icon(
+                                        imageVector = Icons.Filled.CheckCircle, 
+                                        contentDescription = "Translated", 
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Filled.Pending, 
+                                        contentDescription = "Not Translated", 
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            .copy(alpha = 0.5f)
+                                    )
                                 }
                             }
-                            recBitmap.recycle()
                         }
                     }
-                    if (slice != bitmap) slice.recycle()
-                    yOffset += sliceMaxHeight
                 }
-                bitmap.recycle()
             }
-        } catch (e: Exception) {
-            sb.append("\n\nCRASH ERROR: ${e.message}")
         }
+
+        if (showApiKeyDialog) {
+            AlertDialog(
+                onDismissRequest = { showApiKeyDialog = false },
+                title = { Text("Gemini API Setup & Test") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = apiKeyInput,
+                            onValueChange = { apiKeyInput = it },
+                            label = { Text("Gemini API Key") },
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = testMessageInput,
+                            onValueChange = { testMessageInput = it },
+                            label = { Text("Direct Test Message") }
+                        )
+                        if (isTesting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .align(Alignment.CenterHorizontally)
+                                    .padding(top = 8.dp)
+                            )
+                        } else if (testResponse.isNotEmpty()) {
+                            Text(
+                                text = "Reply: $testResponse",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        prefs.edit().putString("gemini_key", apiKeyInput).apply()
+                        showApiKeyDialog = false
+                    }) { Text("Save Key") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        if (apiKeyInput.isNotBlank() && testMessageInput.isNotBlank()) {
+                            isTesting = true
+                            scope.launch {
+                                testResponse = MangaOcrEngine.testGeminiAPI(
+                                    apiKeyInput, 
+                                    testMessageInput
+                                )
+                                isTesting = false
+                            }
+                        }
+                    }) { Text("Test API") }
+                }
+            )
+        }
+    }
+
+    @Composable
+    fun OcrDiagnosticSection() {
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
         
-        return@withContext sb.toString()
-    }
-
-    private fun decodeRecognitionArray(sequence: Array<FloatArray>): String {
-        val sb = java.lang.StringBuilder()
-        var lastIndex = -1
-        for (timeStep in sequence) {
-            var maxProb = -1f
-            var maxIdx = -1
-            for (i in timeStep.indices) {
-                if (timeStep[i] > maxProb) {
-                    maxProb = timeStep[i]
-                    maxIdx = i
-                }
-            }
-            if (maxIdx > 0 && maxIdx != lastIndex && maxIdx <= dictionary.size) {
-                sb.append(dictionary[maxIdx - 1])
-            }
-            lastIndex = maxIdx
+        var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+        var ocrDiagnosticLog by remember { 
+            mutableStateOf("Upload pictures and press Run to test the local OCR engine.") 
         }
-        return sb.toString()
-    }
+        var isRunning by remember { mutableStateOf(false) }
 
-    private fun buildMegaPrompt(japaneseBlocks: List<String>): String {
-        val sb = java.lang.StringBuilder()
-        sb.append(
-            "You are an elite manga translator. Translate the following Japanese " +
-            "text blocks to English. Keep each block separated:\n\n"
-        )
-        japaneseBlocks.forEachIndexed { index, text ->
-            sb.append("Block ${index + 1}: $text\n")
-        }
-        return sb.toString()
-    }
-
-    private fun sendToGemini(prompt: String): String {
-        try {
-            val urlString = "https://generativelanguage.googleapis.com/v1beta/" +
-                            "models/gemini-3.1-flash-lite:generateContent?key=$apiKey"
-            val url = URL(urlString)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "POST"
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.doOutput = true
-            
-            val cleanPrompt = prompt.replace("\n", "\\n").replace("\"", "\\\"")
-            val jsonPayload = 
-                "{\"contents\": [{\"parts\": [{\"text\": \"$cleanPrompt\"}]}]}"
-            
-            connection.outputStream.use { os ->
-                os.write(jsonPayload.toByteArray(Charsets.UTF_8))
+        val photoPicker = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.PickMultipleVisualMedia()
+        ) { uris ->
+            if (uris.isNotEmpty()) {
+                selectedUris = uris
             }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp), 
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
             
-            if (connection.responseCode == 200) {
-                val responseBody = connection.inputStream.bufferedReader().readText()
-                val jsonObject = JSONObject(responseBody)
-                val candidates = jsonObject.getJSONArray("candidates")
-                if (candidates.length() > 0) {
-                    val content = candidates.getJSONObject(0).getJSONObject("content")
-                    val parts = content.getJSONArray("parts")
-                    if (parts.length() > 0) {
-                        return parts.getJSONObject(0).getString("text").trim()
+            Row(
+                modifier = Modifier.fillMaxWidth(), 
+                horizontalArrangement = Arrangement.SpaceBetween, 
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = { 
+                        photoPicker.launch(
+                            PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        ) 
                     }
+                ) {
+                    Text("Select Pages")
                 }
+                Text("Selected: ${selectedUris.size}", fontWeight = FontWeight.Bold)
             }
-            return "API Error: ${connection.responseCode}"
-        } catch (e: Exception) {
-            return "Connection Failed: ${e.message}"
-        }
-    }
 
-    suspend fun processDownloadedChapter(
-        chapterDir: File
-    ): Map<Int, TranslationResult> = withContext(Dispatchers.IO) {
-        val resultMap = mutableMapOf<Int, TranslationResult>()
-        resultMap[0] = TranslationResult(listOf("Chapter Mode Ready!"))
-        return@withContext resultMap
-    }
-
-    companion object {
-        suspend fun testGeminiAPI(
-            testKey: String, 
-            message: String
-        ): String = withContext(Dispatchers.IO) {
-            try {
-                val urlString = "https://generativelanguage.googleapis.com/v1beta/" +
-                                "models/gemini-3.1-flash-lite:generateContent?key=$testKey"
-                val url = URL(urlString)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "POST"
-                connection.setRequestProperty("Content-Type", "application/json")
-                connection.doOutput = true
-                
-                val cleanPrompt = message.replace("\n", "\\n").replace("\"", "\\\"")
-                val jsonPayload = 
-                    "{\"contents\": [{\"parts\": [{\"text\": \"$cleanPrompt\"}]}]}"
-                
-                connection.outputStream.use { os ->
-                    os.write(jsonPayload.toByteArray(Charsets.UTF_8))
-                }
-                
-                if (connection.responseCode == 200) {
-                    val responseBody = connection.inputStream.bufferedReader().readText()
-                    val jsonObject = JSONObject(responseBody)
-                    val candidates = jsonObject.getJSONArray("candidates")
-                    if (candidates.length() > 0) {
-                        val content = candidates.getJSONObject(0).getJSONObject("content")
-                        val parts = content.getJSONArray("parts")
-                        if (parts.length() > 0) {
-                            return@withContext parts.getJSONObject(0).getString("text").trim()
-                        }
+            Button(
+                onClick = {
+                    isRunning = true
+                    ocrDiagnosticLog = "Processing ${selectedUris.size} items. Please wait..."
+                    scope.launch {
+                        val engine = MangaOcrEngine(context, "")
+                        ocrDiagnosticLog = engine.runLocalOcrTest(context, selectedUris)
+                        isRunning = false
                     }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = selectedUris.isNotEmpty() && !isRunning
+            ) {
+                Text(if (isRunning) "Running Local Matrix..." else "Run Diagnostics")
+            }
+
+            if (isRunning) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f), 
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
                 }
-                return@withContext "API Error: ${connection.responseCode}"
-            } catch (e: Exception) {
-                return@withContext "Error: ${e.message}"
+            } else {
+                Text(
+                    text = ocrDiagnosticLog,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
         }
     }
