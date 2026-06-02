@@ -211,7 +211,10 @@ class MangaOcrEngine(
                     )
 
                     try {
-                        appendDebug(sb, "Slice: yOffset=$yOffset height=$currentHeight size=${slice.width}x${slice.height}")
+                        appendDebug(
+                            sb,
+                            "Slice: yOffset=$yOffset height=$currentHeight size=${slice.width}x${slice.height}",
+                        )
 
                         val scaledSlice = OcrUtils.downscaleImageForDetection(slice)
                         appendDebug(
