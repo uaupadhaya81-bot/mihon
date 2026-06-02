@@ -244,8 +244,10 @@ class ReaderActivity : BaseActivity() {
                 }
             }
             .launchIn(lifecycleScope)
-    }
+    } // <--- THIS is the crucial bracket that closes onCreate!
+
     private fun ReaderActivityBinding.setComposeOverlay(): Unit = composeOverlay.setComposeContent {
+        
         val state by viewModel.state.collectAsState()
         val showPageNumber by readerPreferences.showPageNumber.collectAsState()
         val settingsScreenModel = remember {
