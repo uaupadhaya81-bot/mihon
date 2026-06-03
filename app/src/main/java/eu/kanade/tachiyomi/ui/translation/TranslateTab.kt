@@ -62,7 +62,6 @@ import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.navigator.Navigator
 import cafe.adriel.voyager.navigator.tab.TabOptions
 import com.hippo.unifile.UniFile
-import eu.kanade.presentation.util.Tab as CoreTab
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.reader.MangaOcrEngine
 import kotlinx.coroutines.Dispatchers
@@ -70,6 +69,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import eu.kanade.presentation.util.Tab as CoreTab
 
 data class DownloadedChapterInfo(
     val mangaTitle: String,
@@ -407,7 +407,7 @@ object TranslateTab : CoreTab {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
+                        .weight(1f),
                 ) {
                     Text(
                         text = ocrDiagnosticLog,
@@ -418,18 +418,18 @@ object TranslateTab : CoreTab {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    
+
                     IconButton(
                         onClick = {
                             clipboardManager.setText(AnnotatedString(ocrDiagnosticLog))
                             Toast.makeText(context, "Log copied to clipboard", Toast.LENGTH_SHORT).show()
                         },
-                        modifier = Modifier.align(Alignment.TopEnd)
+                        modifier = Modifier.align(Alignment.TopEnd),
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.ContentCopy,
                             contentDescription = "Copy log",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }
