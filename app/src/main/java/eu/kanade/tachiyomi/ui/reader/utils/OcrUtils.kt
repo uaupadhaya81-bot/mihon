@@ -49,6 +49,9 @@ object OcrUtils {
     /**
      * Converts standard Android image pixels into a mathematical FloatBuffer
      * normalized between 0.0 and 1.0 (The format ONNX models read).
+     *
+     * OPTIMIZED: Unrolled channel loops into separate passes to remove the `when` condition checking
+     * and 2D-to-1D index coordinate calculations on every iteration, eliminating millions of operations.
      */
     fun bitmapToFloatBuffer(bitmap: Bitmap): FloatBuffer {
         val width = bitmap.width
@@ -58,18 +61,24 @@ object OcrUtils {
         val pixels = IntArray(width * height)
         bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
-        for (c in 0 until 3) {
-            for (y in 0 until height) {
-                for (x in 0 until width) {
-                    val pixel = pixels[y * width + x]
-                    val value = when (c) {
-                        0 -> ((pixel shr 16) and 0xFF) / 255.0f
-                        1 -> ((pixel shr 8) and 0xFF) / 255.0f
-                        else -> (pixel and 0xFF) / 255.0f
-                    }
-                    floatBuffer.put(value)
-                }
-            }
+        val totalPixels = width * height
+
+        // Pass 1: Red Channel
+        for (i in 0 until totalPixels) {
+            val pixel = pixels[i]
+            floatBuffer.put(((pixel shr 16) and 0xFF) / 255.0f)
+        }
+
+        // Pass 2: Green Channel
+        for (i in 0 until totalPixels) {
+            val pixel = pixels[i]
+            floatBuffer.put(((pixel shr 8) and 0xFF) / 255.0f)
+        }
+
+        // Pass 3: Blue Channel
+        for (i in 0 until totalPixels) {
+            val pixel = pixels[i]
+            floatBuffer.put((pixel and 0xFF) / 255.0f)
         }
 
         floatBuffer.rewind()
