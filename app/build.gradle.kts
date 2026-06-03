@@ -23,9 +23,9 @@ if (Config.includeTelemetry) {
 android {
     namespace = "eu.kanade.tachiyomi"
 
-    // 👇 THIS IS THE FIX: Prevents Android from corrupting your ORT files
+    // 👇 THIS IS THE FIX: Prevents Android from corrupting your ONNX files
     androidResources {
-        noCompress.add("ort")
+        noCompress.add("onnx")
     }
 
     defaultConfig {
