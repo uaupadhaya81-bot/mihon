@@ -412,13 +412,16 @@ class MangaOcrEngine(
             val deduplicated = deduplicateBoxes(globalBoxes)
             val cleanedBoxes = removeRepeatingWatermarks(deduplicated)
 
+            // 🔥 NEW: MERGE THE LINES INTO FULL BUBBLES 🔥
+            val finalMergedBubbles = groupTextBubbles(cleanedBoxes)
+
             appendDebug(sb, "========================")
             appendDebug(sb, "MANGA CHAPTER PROCESSING COMPLETE")
             appendDebug(sb, "Total Continuous Height processed: $globalYOffset px")
-            appendDebug(sb, "Total Unique Text Bubbles: ${cleanedBoxes.size}")
+            appendDebug(sb, "Total Unique Text Bubbles: ${finalMergedBubbles.size}")
             appendDebug(sb, "========================\n")
 
-            cleanedBoxes.forEachIndexed { i, box ->
+            finalMergedBubbles.forEachIndexed { i, box ->
                 appendDebug(sb, "[BUBBLE:${i + 1}] {x: ${box.x}, y: ${box.y}, w: ${box.w}, h: ${box.h}}")
                 appendDebug(sb, box.text)
                 appendDebug(sb, "")
@@ -473,10 +476,14 @@ class MangaOcrEngine(
         val minimumYDistance = 800
         val xTolerance = 30
 
-        // Logo Defense Layer 1: URL Fast Strip
+        // Logo Defense Layer 1: URL Fast Strip + Brand Hard Filter
         for (box in boxes) {
             val txt = box.text
-            if (txt.contains(".com", true) || txt.contains(".org", true) || txt.contains("www.", true)) {
+            if (txt.contains(".com", true) || 
+                txt.contains(".org", true) || 
+                txt.contains("www.", true) ||
+                txt.contains("菠萝包", true) // 🔥 Hard-bans typo variants of the main watermark brand
+            ) {
                 bannedWatermarks.add(txt)
             }
         }
@@ -494,7 +501,7 @@ class MangaOcrEngine(
 
             // Logo Defense Layer 2: Spatial Layout Mapping Pattern Rule
             if (instances.size >= 3) {
-                // FIX: Find a subset of instances where at least 3 items align closely on X
+                // Find a subset of instances where at least 3 items align closely on X
                 val alignedInstances = instances.filter { target ->
                     instances.count { Math.abs(it.x - target.x) <= xTolerance } >= 3
                 }
@@ -563,6 +570,74 @@ class MangaOcrEngine(
     }
 
     // --- Auxiliary Tools ---
+
+    /**
+     * BUBBLE MERGING LOGIC
+     * Glues individual lines of text back together into full speech bubbles 
+     * based on their physical distance from each other on the page.
+     */
+    private fun groupTextBubbles(boxes: List<ParsedBox>): List<ParsedBox> {
+        if (boxes.isEmpty()) return emptyList()
+
+        val groups = mutableListOf<MutableList<ParsedBox>>()
+        
+        // Distance Thresholds: How close boxes must be to merge (in pixels)
+        val expandX = 60 
+        val expandY = 70 
+
+        for (box in boxes) {
+            var foundGroup = false
+            
+            // Create a magnetic zone around the current text box
+            val boxLeft = box.x - expandX
+            val boxTop = box.y - expandY
+            val boxRight = box.x + box.w + expandX
+            val boxBottom = box.y + box.h + expandY
+
+            for (group in groups) {
+                // Check if this box's magnetic zone overlaps with any box already in the group
+                val intersects = group.any { gBox ->
+                    val gLeft = gBox.x
+                    val gTop = gBox.y
+                    val gRight = gBox.x + gBox.w
+                    val gBottom = gBox.y + gBox.h
+                    
+                    // Simple rectangle intersection math
+                    boxLeft < gRight && boxRight > gLeft && boxTop < gBottom && boxBottom > gTop
+                }
+
+                if (intersects) {
+                    group.add(box)
+                    foundGroup = true
+                    break
+                }
+            }
+
+            if (!foundGroup) {
+                groups.add(mutableListOf(box))
+            }
+        }
+
+        // Combine the grouped lines into single massive paragraph boxes!
+        val mergedBoxes = mutableListOf<ParsedBox>()
+        for (group in groups) {
+            // Sort lines top-to-bottom so the sentence reads correctly
+            val sortedGroup = group.sortedBy { it.y }
+            
+            val minX = sortedGroup.minOf { it.x }
+            val minY = sortedGroup.minOf { it.y }
+            val maxX = sortedGroup.maxOf { it.x + it.w }
+            val maxY = sortedGroup.maxOf { it.y + it.h }
+            
+            // Glue the text strings together
+            val mergedText = sortedGroup.joinToString("") { it.text }
+            val center = (minY + maxY) / 2
+            
+            mergedBoxes.add(ParsedBox(minX, minY, maxX - minX, maxY - minY, mergedText, center))
+        }
+
+        return mergedBoxes.sortedBy { it.y }
+    }
 
     /**
      * Decodes the raw float array into a String AND calculates the AI's average confidence.
