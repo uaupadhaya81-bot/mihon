@@ -42,7 +42,6 @@ class MangaOcrEngine(
 
     data class TranslationResult(val translatedBlocks: List<String>)
 
-    // A structure to keep track of text boxes across long scrolling manga chapters
     data class ParsedBox(
         val x: Int, val y: Int, val w: Int, val h: Int,
         val text: String, val localCenterY: Int
@@ -98,15 +97,19 @@ class MangaOcrEngine(
 
     suspend fun processSingleImage(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
         try {
-            val env = ortEnv ?: return@withContext "Engine Error: ORT environment not initialized"
-            val det = detSession ?: return@withContext "Engine Error: Detection session not initialized"
-            val rec = recSession ?: return@withContext "Engine Error: Recognition session not initialized"
+            val env = ortEnv ?: return@withContext "Engine Error: ORT env not init"
+            val det = detSession ?: return@withContext "Engine Error: Det session not init"
+            val rec = recSession ?: return@withContext "Engine Error: Rec session not init"
 
             val scaledBitmap = OcrUtils.downscaleImageForDetection(bitmap)
-            val processedBitmap = OcrUtils.padToMultipleOf32(scaledBitmap) // Apply ONNX safe padding
+            val processedBitmap = OcrUtils.padToMultipleOf32(scaledBitmap)
             
             val floatBuffer = OcrUtils.bitmapToFloatBuffer(processedBitmap)
-            val shape = longArrayOf(1, 3, processedBitmap.height.toLong(), processedBitmap.width.toLong())
+            val shape = longArrayOf(
+                1, 3, 
+                processedBitmap.height.toLong(), 
+                processedBitmap.width.toLong()
+            )
 
             var detW = processedBitmap.width
             var detH = processedBitmap.height
@@ -114,7 +117,7 @@ class MangaOcrEngine(
 
             OnnxTensor.createTensor(env, floatBuffer, shape).use { tensor ->
                 val inputName = det.inputNames.firstOrNull()
-                    ?: return@withContext "Engine Error: Detection model input name missing"
+                    ?: return@withContext "Engine Error: Det model input name missing"
 
                 val detMap = Collections.singletonMap(inputName, tensor)
                 det.run(detMap).use { results ->
@@ -146,7 +149,6 @@ class MangaOcrEngine(
 
             if (flatProbabilities.isEmpty()) return@withContext "Failed to parse detection output."
             
-            // Map scale based on the un-padded downscaled image vs original
             val scaleX = bitmap.width.toFloat() / scaledBitmap.width
             val scaleY = bitmap.height.toFloat() / scaledBitmap.height
             
@@ -155,7 +157,7 @@ class MangaOcrEngine(
             
             val japaneseTextBlocks = mutableListOf<String>()
             val recInputName = rec.inputNames.firstOrNull()
-                ?: return@withContext "Engine Error: Recognition model input name missing"
+                ?: return@withContext "Engine Error: Rec model input name missing"
 
             for (box in boxes) {
                 val croppedBubble = OcrUtils.cropBubble(bitmap, box, scaleX, scaleY)
@@ -164,7 +166,8 @@ class MangaOcrEngine(
                 }
 
                 val recHeight = 48
-                val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight).toInt().coerceAtLeast(1)
+                val ratio = croppedBubble.width.toFloat() / croppedBubble.height
+                val recWidth = (ratio * recHeight).toInt().coerceAtLeast(1)
                 val recBitmap = Bitmap.createScaledBitmap(croppedBubble, recWidth, recHeight, true)
 
                 try {
@@ -220,9 +223,9 @@ class MangaOcrEngine(
         val globalBoxes = mutableListOf<ParsedBox>()
 
         try {
-            val env = ortEnv ?: return@withContext "Engine Error: ORT environment not initialized"
-            val det = detSession ?: return@withContext "Engine Error: Detection session not initialized"
-            val rec = recSession ?: return@withContext "Engine Error: Recognition session not initialized"
+            val env = ortEnv ?: return@withContext "Engine Error: ORT env not init"
+            val det = detSession ?: return@withContext "Engine Error: Det session not init"
+            val rec = recSession ?: return@withContext "Engine Error: Rec session not init"
 
             uris.forEachIndexed { index, uri ->
                 val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -237,13 +240,19 @@ class MangaOcrEngine(
                 while (localYOffset < bitmap.height) {
                     val endY = minOf(localYOffset + windowHeight, bitmap.height)
                     val currentHeight = endY - localYOffset
-                    val slice = Bitmap.createBitmap(bitmap, 0, localYOffset, bitmap.width, currentHeight)
+                    val slice = Bitmap.createBitmap(
+                        bitmap, 0, localYOffset, bitmap.width, currentHeight
+                    )
 
                     val scaledSlice = OcrUtils.downscaleImageForDetection(slice)
                     val processedSlice = OcrUtils.padToMultipleOf32(scaledSlice)
 
                     val floatBuffer = OcrUtils.bitmapToFloatBuffer(processedSlice)
-                    val shape = longArrayOf(1, 3, processedSlice.height.toLong(), processedSlice.width.toLong())
+                    val shape = longArrayOf(
+                        1, 3, 
+                        processedSlice.height.toLong(), 
+                        processedSlice.width.toLong()
+                    )
 
                     var detW = processedSlice.width
                     var detH = processedSlice.height
@@ -289,12 +298,20 @@ class MangaOcrEngine(
                                 if (croppedBubble.width <= 0 || croppedBubble.height <= 0) continue
 
                                 val recHeight = 48
-                                val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight).toInt().coerceAtLeast(1)
-                                val recBitmap = Bitmap.createScaledBitmap(croppedBubble, recWidth, recHeight, true)
+                                val ratio = croppedBubble.width.toFloat() / croppedBubble.height
+                                val recWidth = (ratio * recHeight).toInt().coerceAtLeast(1)
+                                
+                                val recBitmap = Bitmap.createScaledBitmap(
+                                    croppedBubble, recWidth, recHeight, true
+                                )
 
                                 try {
                                     val recBufferIn = OcrUtils.bitmapToFloatBuffer(recBitmap)
-                                    val recShapeIn = longArrayOf(1, 3, recHeight.toLong(), recWidth.toLong())
+                                    val recShapeIn = longArrayOf(
+                                        1, 3, 
+                                        recHeight.toLong(), 
+                                        recWidth.toLong()
+                                    )
 
                                     OnnxTensor.createTensor(env, recBufferIn, recShapeIn).use { recTensor ->
                                         val recMap = Collections.singletonMap(recInputName, recTensor)
@@ -302,21 +319,28 @@ class MangaOcrEngine(
                                             val recOut = recRes.iterator().next().value as? OnnxTensor
                                             @Suppress("UNCHECKED_CAST")
                                             val rawRecArray = recOut?.value as? Array<Array<FloatArray>>
+                                            
                                             if (rawRecArray != null && rawRecArray.isNotEmpty()) {
                                                 val batch = rawRecArray[0]
                                                 if (batch.isNotEmpty()) {
                                                     val decodedText = decodeRecognitionArray(batch)
                                                     
                                                     if (decodedText.isNotBlank()) {
-                                                        // Convert local bounds to Absolute Global Manga Bounds
                                                         val absX = (box.left * scaleX).toInt()
                                                         val w = ((box.right - box.left) * scaleX).toInt()
                                                         val h = ((box.bottom - box.top) * scaleY).toInt()
                                                         
-                                                        val absY = (box.top * scaleY).toInt() + localYOffset + globalYOffset
+                                                        val absY = (box.top * scaleY).toInt() + 
+                                                            localYOffset + globalYOffset
+                                                            
                                                         val localCenterY = (box.top + box.bottom) / 2
                                                         
-                                                        globalBoxes.add(ParsedBox(absX, absY, w, h, decodedText, localCenterY))
+                                                        globalBoxes.add(
+                                                            ParsedBox(
+                                                                absX, absY, w, h, 
+                                                                decodedText, localCenterY
+                                                            )
+                                                        )
                                                     }
                                                 }
                                             }
@@ -337,7 +361,6 @@ class MangaOcrEngine(
                 bitmap.recycle()
             }
 
-            // CLEANUP: Clean overlaps using Manga Vertical Layout rules
             val cleanedBoxes = deduplicateBoxes(globalBoxes)
             
             appendDebug(sb, "========================")
@@ -371,15 +394,12 @@ class MangaOcrEngine(
             for (i in result.indices) {
                 val existing = result[i]
                 
-                // 1. Enforce strict horizontal column logic for manga
-                val isXAligned = Math.abs(box.x - existing.x) <= xTolerance && 
-                                 Math.abs(box.w - existing.w) <= xTolerance
+                val xAligned = Math.abs(box.x - existing.x) <= xTolerance
+                val wAligned = Math.abs(box.w - existing.w) <= xTolerance
 
-                // 2. If it aligns horizontally and overlaps vertically, it's a split duplicate!
-                if (isXAligned && calculateIoU(box, existing) > 0.3f) { 
+                if (xAligned && wAligned && calculateIoU(box, existing) > 0.3f) { 
                     isDuplicate = true
                     
-                    // Center-is-best logic: Keep the one furthest away from the slice cut lines
                     val existingDist = Math.abs(existing.localCenterY - 512)
                     val newDist = Math.abs(box.localCenterY - 512)
                     if (newDist < existingDist) {
@@ -393,7 +413,6 @@ class MangaOcrEngine(
             }
         }
         
-        // Sort everything top-to-bottom so translations read correctly in flow
         return result.sortedBy { it.y } 
     }
 
