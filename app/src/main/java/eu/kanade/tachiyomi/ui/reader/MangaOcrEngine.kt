@@ -149,13 +149,11 @@ class MangaOcrEngine(
             }
 
             if (flatProbabilities.isEmpty()) return@withContext "Failed to parse detection output."
-
             val scaleX = bitmap.width.toFloat() / scaledBitmap.width
             val scaleY = bitmap.height.toFloat() / scaledBitmap.height
 
             val boxes = DbNetMath.extractBoundingBoxes(flatProbabilities, detW, detH)
             if (boxes.isEmpty()) return@withContext "No text found in this image."
-
             val japaneseTextBlocks = mutableListOf<String>()
             val recInputName = rec.inputNames.firstOrNull()
                 ?: return@withContext "Engine Error: Rec model input name missing"
@@ -183,8 +181,9 @@ class MangaOcrEngine(
                                 if (rawRecArray != null && rawRecArray.isNotEmpty()) {
                                     val batch = rawRecArray[0]
                                     if (batch.isNotEmpty()) {
-                                        val decodedText = decodeRecognitionArray(batch)
-                                        if (decodedText.isNotBlank()) {
+                                        val (decodedText, confidence) = decodeRecognitionArray(batch)
+                                        // 🔥 CONFIDENCE FILTER APPLIED HERE 🔥
+                                        if (decodedText.isNotBlank() && confidence > 0.60f) {
                                             japaneseTextBlocks.add(decodedText)
                                         }
                                     }
@@ -216,7 +215,6 @@ class MangaOcrEngine(
         uris: List<Uri>,
     ): String = withContext(Dispatchers.IO) {
         if (initError != null) return@withContext initError!!
-
         val sb = StringBuilder()
         var globalYOffset = 0
         val globalBoxes = mutableListOf<ParsedBox>()
@@ -351,9 +349,10 @@ class MangaOcrEngine(
                                             if (rawRecArray != null && rawRecArray.isNotEmpty()) {
                                                 val batch = rawRecArray[0]
                                                 if (batch.isNotEmpty()) {
-                                                    val decodedText = decodeRecognitionArray(batch)
+                                                    val (decodedText, confidence) = decodeRecognitionArray(batch)
 
-                                                    if (decodedText.isNotBlank()) {
+                                                    // 🔥 CONFIDENCE FILTER APPLIED HERE 🔥
+                                                    if (decodedText.isNotBlank() && confidence > 0.60f) {
                                                         val absX = (box.left * scaleX).toInt()
                                                         val w = ((box.right - box.left) * scaleX).toInt()
                                                         val h = ((box.bottom - box.top) * scaleY).toInt()
@@ -508,9 +507,15 @@ class MangaOcrEngine(
 
     // --- Auxiliary Tools ---
 
-    private fun decodeRecognitionArray(sequence: Array<FloatArray>): String {
+    /**
+     * Decodes the raw float array into a String AND calculates the AI's average confidence.
+     * Returns a Pair: (Decoded Text, Average Confidence Score 0.0 to 1.0)
+     */
+    private fun decodeRecognitionArray(sequence: Array<FloatArray>): Pair<String, Float> {
         val sb = StringBuilder()
         var lastIndex = -1
+        var totalProb = 0f
+        var validChars = 0
 
         for (timeStep in sequence) {
             var maxProb = -1f
@@ -525,12 +530,15 @@ class MangaOcrEngine(
 
             if (maxIdx > 0 && maxIdx != lastIndex && maxIdx <= dictionary.size) {
                 sb.append(dictionary[maxIdx - 1])
+                totalProb += maxProb
+                validChars++
             }
 
             lastIndex = maxIdx
         }
 
-        return sb.toString()
+        val avgConfidence = if (validChars > 0) totalProb / validChars else 0f
+        return Pair(sb.toString(), avgConfidence)
     }
 
     private fun buildMegaPrompt(japaneseBlocks: List<String>): String {
