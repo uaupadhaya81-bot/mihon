@@ -1,0 +1,44 @@
+name: Auto Spotless
+
+on: [push] # This automatically targets WHATEVER branch receives a commit
+
+jobs:
+  spotless:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Grants the runner permission to push updates back to your branch
+
+    steps:
+      # 1. Automatically checks out the specific branch you just pushed to
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Set up Java (Required for Gradle)
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17' # Change this if your project uses Java 11, 21, etc.
+
+      # 3. Cache and setup Gradle for faster execution speeds
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # 4. Run spotless and push changes dynamically to the current branch
+      - name: Run Spotless and Push Changes
+        run: |
+          # Set up Git bot profile
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Run the formatting command
+          ./gradlew spotlessApply
+          
+          # Check if Spotless made any changes. If yes, commit and push back to the current branch.
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "chore: automated spotless formatting"
+            git push origin HEAD:${{ github.ref_name }}
+          else
+            echo "Code is already perfectly formatted. No push needed."
+          fi
