@@ -44,8 +44,12 @@ class MangaOcrEngine(
     data class TranslationResult(val translatedBlocks: List<String>)
 
     data class ParsedBox(
-        val x: Int, val y: Int, val w: Int, val h: Int,
-        val text: String, val localCenterY: Int
+        val x: Int,
+        val y: Int,
+        val w: Int,
+        val h: Int,
+        val text: String,
+        val localCenterY: Int,
     )
 
     init {
@@ -104,7 +108,7 @@ class MangaOcrEngine(
 
             val scaledBitmap = OcrUtils.downscaleImageForDetection(bitmap)
             val processedBitmap = OcrUtils.padToMultipleOf32(scaledBitmap)
-            
+
             val floatBuffer = OcrUtils.bitmapToFloatBuffer(processedBitmap)
             val shape = longArrayOf(1, 3, processedBitmap.height.toLong(), processedBitmap.width.toLong())
 
@@ -145,13 +149,13 @@ class MangaOcrEngine(
             }
 
             if (flatProbabilities.isEmpty()) return@withContext "Failed to parse detection output."
-            
+
             val scaleX = bitmap.width.toFloat() / scaledBitmap.width
             val scaleY = bitmap.height.toFloat() / scaledBitmap.height
-            
+
             val boxes = DbNetMath.extractBoundingBoxes(flatProbabilities, detW, detH)
             if (boxes.isEmpty()) return@withContext "No text found in this image."
-            
+
             val japaneseTextBlocks = mutableListOf<String>()
             val recInputName = rec.inputNames.firstOrNull()
                 ?: return@withContext "Engine Error: Rec model input name missing"
@@ -214,7 +218,7 @@ class MangaOcrEngine(
         if (initError != null) return@withContext initError!!
 
         val sb = StringBuilder()
-        var globalYOffset = 0 
+        var globalYOffset = 0
         val globalBoxes = mutableListOf<ParsedBox>()
         var carryOver: Bitmap? = null
 
@@ -234,7 +238,9 @@ class MangaOcrEngine(
                 // UNIFIED LAYER: If previous page cut text, physically stitch it here
                 val activeBitmap = if (hasCarryOver) {
                     val stitched = Bitmap.createBitmap(
-                        rawBitmap.width, rawBitmap.height + carryOverH, Bitmap.Config.ARGB_8888
+                        rawBitmap.width,
+                        rawBitmap.height + carryOverH,
+                        Bitmap.Config.ARGB_8888,
                     )
                     val canvas = Canvas(stitched)
                     canvas.drawBitmap(carryOver!!, 0f, 0f, null)
@@ -247,7 +253,7 @@ class MangaOcrEngine(
                 }
 
                 val windowHeight = 1024
-                val overlap = 180 
+                val overlap = 180
                 var localYOffset = 0
 
                 while (localYOffset < activeBitmap.height) {
@@ -256,7 +262,11 @@ class MangaOcrEngine(
                         val remaining = activeBitmap.height - localYOffset
                         if (index < uris.size - 1) {
                             carryOver = Bitmap.createBitmap(
-                                activeBitmap, 0, localYOffset, activeBitmap.width, remaining
+                                activeBitmap,
+                                0,
+                                localYOffset,
+                                activeBitmap.width,
+                                remaining,
                             )
                             break
                         }
@@ -280,6 +290,7 @@ class MangaOcrEngine(
                         val detMap = Collections.singletonMap(inputName, tensor)
                         det.run(detMap).use { results ->
                             val detOutputTensor = results.iterator().next().value as? OnnxTensor
+
                             @Suppress("UNCHECKED_CAST")
                             val rawDetArray = detOutputTensor?.value as? Array<Array<Array<FloatArray>>>
                             if (rawDetArray != null && rawDetArray.isNotEmpty()) {
@@ -317,9 +328,12 @@ class MangaOcrEngine(
                                 val recHeight = 48
                                 val ratio = croppedBubble.width.toFloat() / croppedBubble.height
                                 val recWidth = (ratio * recHeight).toInt().coerceAtLeast(1)
-                                
+
                                 val recBitmap = Bitmap.createScaledBitmap(
-                                    croppedBubble, recWidth, recHeight, true
+                                    croppedBubble,
+                                    recWidth,
+                                    recHeight,
+                                    true,
                                 )
 
                                 try {
@@ -330,30 +344,35 @@ class MangaOcrEngine(
                                         val recMap = Collections.singletonMap(recInputName, recTensor)
                                         rec.run(recMap).use { recRes ->
                                             val recOut = recRes.iterator().next().value as? OnnxTensor
+
                                             @Suppress("UNCHECKED_CAST")
                                             val rawRecArray = recOut?.value as? Array<Array<FloatArray>>
-                                            
+
                                             if (rawRecArray != null && rawRecArray.isNotEmpty()) {
                                                 val batch = rawRecArray[0]
                                                 if (batch.isNotEmpty()) {
                                                     val decodedText = decodeRecognitionArray(batch)
-                                                    
+
                                                     if (decodedText.isNotBlank()) {
                                                         val absX = (box.left * scaleX).toInt()
                                                         val w = ((box.right - box.left) * scaleX).toInt()
                                                         val h = ((box.bottom - box.top) * scaleY).toInt()
-                                                        
+
                                                         // GLOBAL REMAP MATH: Accounts for pre-stitched canvas shift
-                                                        val absY = (box.top * scaleY).toInt() + 
+                                                        val absY = (box.top * scaleY).toInt() +
                                                             localYOffset + globalYOffset - carryOverH
-                                                            
+
                                                         val localCenterY = (box.top + box.bottom) / 2
-                                                        
+
                                                         globalBoxes.add(
                                                             ParsedBox(
-                                                                absX, absY, w, h, 
-                                                                decodedText, localCenterY
-                                                            )
+                                                                absX,
+                                                                absY,
+                                                                w,
+                                                                h,
+                                                                decodedText,
+                                                                localCenterY,
+                                                            ),
                                                         )
                                                     }
                                                 }
@@ -371,7 +390,7 @@ class MangaOcrEngine(
                     localYOffset += (windowHeight - overlap)
                 }
 
-                globalYOffset += rawBitmap.height 
+                globalYOffset += rawBitmap.height
                 if (activeBitmap != rawBitmap) activeBitmap.recycle()
                 rawBitmap.recycle()
             }
@@ -379,7 +398,7 @@ class MangaOcrEngine(
             // CLEANUP: Enforce horizontal column lock, text quality, and your repeat tracking rule
             val deduplicated = deduplicateBoxes(globalBoxes)
             val cleanedBoxes = removeRepeatingWatermarks(deduplicated)
-            
+
             appendDebug(sb, "========================")
             appendDebug(sb, "MANGA CHAPTER PROCESSING COMPLETE")
             appendDebug(sb, "Total Continuous Height processed: $globalYOffset px")
@@ -387,11 +406,10 @@ class MangaOcrEngine(
             appendDebug(sb, "========================\n")
 
             cleanedBoxes.forEachIndexed { i, box ->
-                appendDebug(sb, "[BUBBLE:${i+1}] {x: ${box.x}, y: ${box.y}, w: ${box.w}, h: ${box.h}}")
+                appendDebug(sb, "[BUBBLE:${i + 1}] {x: ${box.x}, y: ${box.y}, w: ${box.w}, h: ${box.h}}")
                 appendDebug(sb, box.text)
                 appendDebug(sb, "")
             }
-
         } catch (e: Exception) {
             Log.e(TAG, "runLocalOcrTest crashed", e)
             sb.append("\n\nCRASH ERROR: ${e.message}")
@@ -404,23 +422,23 @@ class MangaOcrEngine(
 
     private fun deduplicateBoxes(boxes: List<ParsedBox>): List<ParsedBox> {
         val result = mutableListOf<ParsedBox>()
-        val xTolerance = 15 
+        val xTolerance = 15
 
         for (box in boxes) {
             var isDuplicate = false
             for (i in result.indices) {
                 val existing = result[i]
-                
+
                 val xAligned = Math.abs(box.x - existing.x) <= xTolerance
                 val wAligned = Math.abs(box.w - existing.w) <= xTolerance
 
-                if (xAligned && wAligned && calculateIoU(box, existing) > 0.3f) { 
+                if (xAligned && wAligned && calculateIoU(box, existing) > 0.3f) {
                     isDuplicate = true
-                    
+
                     val existingDist = Math.abs(existing.localCenterY - 512)
                     val newDist = Math.abs(box.localCenterY - 512)
                     if (newDist < existingDist) {
-                        result[i] = box 
+                        result[i] = box
                     }
                     break
                 }
@@ -429,7 +447,7 @@ class MangaOcrEngine(
                 result.add(box)
             }
         }
-        
+
         return result
     }
 
@@ -440,7 +458,7 @@ class MangaOcrEngine(
     private fun removeRepeatingWatermarks(boxes: List<ParsedBox>): List<ParsedBox> {
         val textGroups = boxes.groupBy { it.text }
         val bannedWatermarks = mutableSetOf<String>()
-        val minimumYDistance = 800 
+        val minimumYDistance = 800
         val xTolerance = 30
 
         for ((text, instances) in textGroups) {
