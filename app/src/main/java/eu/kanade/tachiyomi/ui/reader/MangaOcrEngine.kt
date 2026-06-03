@@ -66,12 +66,12 @@ class MangaOcrEngine(
             }
 
             // 1. Extract and Load Detection Model from absolute path string
-            val detModelPath = getAssetFilePath("ch_PP-OCRv5_det_infer.ort")
+            val detModelPath = getAssetFilePath("ch_PP-OCRv5_det_infer.onnx")
             detModelSizeMb = File(detModelPath).length() / 1024f / 1024f
             detSession = ortEnv?.createSession(detModelPath, OrtSession.SessionOptions())
 
             // 2. Extract and Load Recognition Model from absolute path string
-            val recModelPath = getAssetFilePath("ch_PP-OCRv5_rec_infer.ort")
+            val recModelPath = getAssetFilePath("ch_PP-OCRv5_rec_infer.onnx")
             recModelSizeMb = File(recModelPath).length() / 1024f / 1024f
             recSession = ortEnv?.createSession(recModelPath, OrtSession.SessionOptions())
 
