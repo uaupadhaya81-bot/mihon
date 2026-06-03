@@ -6,6 +6,7 @@ import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.net.Uri
 import android.util.Log
 import android.widget.Toast
@@ -43,12 +44,8 @@ class MangaOcrEngine(
     data class TranslationResult(val translatedBlocks: List<String>)
 
     data class ParsedBox(
-        val x: Int,
-        val y: Int,
-        val w: Int,
-        val h: Int,
-        val text: String,
-        val localCenterY: Int,
+        val x: Int, val y: Int, val w: Int, val h: Int,
+        val text: String, val localCenterY: Int
     )
 
     init {
@@ -107,14 +104,9 @@ class MangaOcrEngine(
 
             val scaledBitmap = OcrUtils.downscaleImageForDetection(bitmap)
             val processedBitmap = OcrUtils.padToMultipleOf32(scaledBitmap)
-
+            
             val floatBuffer = OcrUtils.bitmapToFloatBuffer(processedBitmap)
-            val shape = longArrayOf(
-                1,
-                3,
-                processedBitmap.height.toLong(),
-                processedBitmap.width.toLong(),
-            )
+            val shape = longArrayOf(1, 3, processedBitmap.height.toLong(), processedBitmap.width.toLong())
 
             var detW = processedBitmap.width
             var detH = processedBitmap.height
@@ -153,22 +145,20 @@ class MangaOcrEngine(
             }
 
             if (flatProbabilities.isEmpty()) return@withContext "Failed to parse detection output."
-
+            
             val scaleX = bitmap.width.toFloat() / scaledBitmap.width
             val scaleY = bitmap.height.toFloat() / scaledBitmap.height
-
+            
             val boxes = DbNetMath.extractBoundingBoxes(flatProbabilities, detW, detH)
             if (boxes.isEmpty()) return@withContext "No text found in this image."
-
+            
             val japaneseTextBlocks = mutableListOf<String>()
             val recInputName = rec.inputNames.firstOrNull()
                 ?: return@withContext "Engine Error: Rec model input name missing"
 
             for (box in boxes) {
                 val croppedBubble = OcrUtils.cropBubble(bitmap, box, scaleX, scaleY)
-                if (croppedBubble.width <= 0 || croppedBubble.height <= 0) {
-                    continue
-                }
+                if (croppedBubble.width <= 0 || croppedBubble.height <= 0) continue
 
                 val recHeight = 48
                 val ratio = croppedBubble.width.toFloat() / croppedBubble.height
@@ -224,8 +214,9 @@ class MangaOcrEngine(
         if (initError != null) return@withContext initError!!
 
         val sb = StringBuilder()
-        var globalYOffset = 0
+        var globalYOffset = 0 
         val globalBoxes = mutableListOf<ParsedBox>()
+        var carryOver: Bitmap? = null
 
         try {
             val env = ortEnv ?: return@withContext "Engine Error: ORT env not init"
@@ -233,36 +224,52 @@ class MangaOcrEngine(
             val rec = recSession ?: return@withContext "Engine Error: Rec session not init"
 
             uris.forEachIndexed { index, uri ->
-                val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
+                val rawBitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
                     BitmapFactory.decodeStream(stream)
                 } ?: return@forEachIndexed
 
-                // --- SLIDING WINDOW CONFIGURATION ---
+                val hasCarryOver = carryOver != null
+                val carryOverH = if (hasCarryOver) carryOver!!.height else 0
+
+                // UNIFIED LAYER: If previous page cut text, physically stitch it here
+                val activeBitmap = if (hasCarryOver) {
+                    val stitched = Bitmap.createBitmap(
+                        rawBitmap.width, rawBitmap.height + carryOverH, Bitmap.Config.ARGB_8888
+                    )
+                    val canvas = Canvas(stitched)
+                    canvas.drawBitmap(carryOver!!, 0f, 0f, null)
+                    canvas.drawBitmap(rawBitmap, 0f, carryOverH.toFloat(), null)
+                    carryOver!!.recycle()
+                    carryOver = null
+                    stitched
+                } else {
+                    rawBitmap
+                }
+
                 val windowHeight = 1024
-                val overlap = 180
+                val overlap = 180 
                 var localYOffset = 0
 
-                while (localYOffset < bitmap.height) {
-                    val endY = minOf(localYOffset + windowHeight, bitmap.height)
-                    val currentHeight = endY - localYOffset
-                    val slice = Bitmap.createBitmap(
-                        bitmap,
-                        0,
-                        localYOffset,
-                        bitmap.width,
-                        currentHeight,
-                    )
+                while (localYOffset < activeBitmap.height) {
+                    // Save remaining pixel slice if window oversteps the bounds
+                    if (localYOffset + windowHeight > activeBitmap.height) {
+                        val remaining = activeBitmap.height - localYOffset
+                        if (index < uris.size - 1) {
+                            carryOver = Bitmap.createBitmap(
+                                activeBitmap, 0, localYOffset, activeBitmap.width, remaining
+                            )
+                            break
+                        }
+                    }
+
+                    val chunkH = minOf(windowHeight, activeBitmap.height - localYOffset)
+                    val slice = Bitmap.createBitmap(activeBitmap, 0, localYOffset, activeBitmap.width, chunkH)
 
                     val scaledSlice = OcrUtils.downscaleImageForDetection(slice)
                     val processedSlice = OcrUtils.padToMultipleOf32(scaledSlice)
 
                     val floatBuffer = OcrUtils.bitmapToFloatBuffer(processedSlice)
-                    val shape = longArrayOf(
-                        1,
-                        3,
-                        processedSlice.height.toLong(),
-                        processedSlice.width.toLong(),
-                    )
+                    val shape = longArrayOf(1, 3, processedSlice.height.toLong(), processedSlice.width.toLong())
 
                     var detW = processedSlice.width
                     var detH = processedSlice.height
@@ -273,7 +280,6 @@ class MangaOcrEngine(
                         val detMap = Collections.singletonMap(inputName, tensor)
                         det.run(detMap).use { results ->
                             val detOutputTensor = results.iterator().next().value as? OnnxTensor
-
                             @Suppress("UNCHECKED_CAST")
                             val rawDetArray = detOutputTensor?.value as? Array<Array<Array<FloatArray>>>
                             if (rawDetArray != null && rawDetArray.isNotEmpty()) {
@@ -311,55 +317,43 @@ class MangaOcrEngine(
                                 val recHeight = 48
                                 val ratio = croppedBubble.width.toFloat() / croppedBubble.height
                                 val recWidth = (ratio * recHeight).toInt().coerceAtLeast(1)
-
+                                
                                 val recBitmap = Bitmap.createScaledBitmap(
-                                    croppedBubble,
-                                    recWidth,
-                                    recHeight,
-                                    true,
+                                    croppedBubble, recWidth, recHeight, true
                                 )
 
                                 try {
                                     val recBufferIn = OcrUtils.bitmapToFloatBuffer(recBitmap)
-                                    val recShapeIn = longArrayOf(
-                                        1,
-                                        3,
-                                        recHeight.toLong(),
-                                        recWidth.toLong(),
-                                    )
+                                    val recShapeIn = longArrayOf(1, 3, recHeight.toLong(), recWidth.toLong())
 
                                     OnnxTensor.createTensor(env, recBufferIn, recShapeIn).use { recTensor ->
                                         val recMap = Collections.singletonMap(recInputName, recTensor)
                                         rec.run(recMap).use { recRes ->
                                             val recOut = recRes.iterator().next().value as? OnnxTensor
-
                                             @Suppress("UNCHECKED_CAST")
                                             val rawRecArray = recOut?.value as? Array<Array<FloatArray>>
-
+                                            
                                             if (rawRecArray != null && rawRecArray.isNotEmpty()) {
                                                 val batch = rawRecArray[0]
                                                 if (batch.isNotEmpty()) {
                                                     val decodedText = decodeRecognitionArray(batch)
-
+                                                    
                                                     if (decodedText.isNotBlank()) {
                                                         val absX = (box.left * scaleX).toInt()
                                                         val w = ((box.right - box.left) * scaleX).toInt()
                                                         val h = ((box.bottom - box.top) * scaleY).toInt()
-
-                                                        val absY = (box.top * scaleY).toInt() +
-                                                            localYOffset + globalYOffset
-
+                                                        
+                                                        // GLOBAL REMAP MATH: Accounts for pre-stitched canvas shift
+                                                        val absY = (box.top * scaleY).toInt() + 
+                                                            localYOffset + globalYOffset - carryOverH
+                                                            
                                                         val localCenterY = (box.top + box.bottom) / 2
-
+                                                        
                                                         globalBoxes.add(
                                                             ParsedBox(
-                                                                absX,
-                                                                absY,
-                                                                w,
-                                                                h,
-                                                                decodedText,
-                                                                localCenterY,
-                                                            ),
+                                                                absX, absY, w, h, 
+                                                                decodedText, localCenterY
+                                                            )
                                                         )
                                                     }
                                                 }
@@ -377,12 +371,15 @@ class MangaOcrEngine(
                     localYOffset += (windowHeight - overlap)
                 }
 
-                globalYOffset += bitmap.height
-                bitmap.recycle()
+                globalYOffset += rawBitmap.height 
+                if (activeBitmap != rawBitmap) activeBitmap.recycle()
+                rawBitmap.recycle()
             }
 
-            val cleanedBoxes = deduplicateBoxes(globalBoxes)
-
+            // CLEANUP: Enforce horizontal column lock, text quality, and your repeat tracking rule
+            val deduplicated = deduplicateBoxes(globalBoxes)
+            val cleanedBoxes = removeRepeatingWatermarks(deduplicated)
+            
             appendDebug(sb, "========================")
             appendDebug(sb, "MANGA CHAPTER PROCESSING COMPLETE")
             appendDebug(sb, "Total Continuous Height processed: $globalYOffset px")
@@ -390,10 +387,11 @@ class MangaOcrEngine(
             appendDebug(sb, "========================\n")
 
             cleanedBoxes.forEachIndexed { i, box ->
-                appendDebug(sb, "[BUBBLE:${i + 1}] {x: ${box.x}, y: ${box.y}, w: ${box.w}, h: ${box.h}}")
+                appendDebug(sb, "[BUBBLE:${i+1}] {x: ${box.x}, y: ${box.y}, w: ${box.w}, h: ${box.h}}")
                 appendDebug(sb, box.text)
                 appendDebug(sb, "")
             }
+
         } catch (e: Exception) {
             Log.e(TAG, "runLocalOcrTest crashed", e)
             sb.append("\n\nCRASH ERROR: ${e.message}")
@@ -406,23 +404,23 @@ class MangaOcrEngine(
 
     private fun deduplicateBoxes(boxes: List<ParsedBox>): List<ParsedBox> {
         val result = mutableListOf<ParsedBox>()
-        val xTolerance = 15 // Manga X-Axis Strict Lock
+        val xTolerance = 15 
 
         for (box in boxes) {
             var isDuplicate = false
             for (i in result.indices) {
                 val existing = result[i]
-
+                
                 val xAligned = Math.abs(box.x - existing.x) <= xTolerance
                 val wAligned = Math.abs(box.w - existing.w) <= xTolerance
 
-                if (xAligned && wAligned && calculateIoU(box, existing) > 0.3f) {
+                if (xAligned && wAligned && calculateIoU(box, existing) > 0.3f) { 
                     isDuplicate = true
-
+                    
                     val existingDist = Math.abs(existing.localCenterY - 512)
                     val newDist = Math.abs(box.localCenterY - 512)
                     if (newDist < existingDist) {
-                        result[i] = box
+                        result[i] = box 
                     }
                     break
                 }
@@ -431,8 +429,49 @@ class MangaOcrEngine(
                 result.add(box)
             }
         }
+        
+        return result
+    }
 
-        return result.sortedBy { it.y }
+    /**
+     * YOUR WATERMARK TRACKER + URL HEURISTICS
+     * Looks for exact matching strings aligned horizontally with substantial vertical gaps.
+     */
+    private fun removeRepeatingWatermarks(boxes: List<ParsedBox>): List<ParsedBox> {
+        val textGroups = boxes.groupBy { it.text }
+        val bannedWatermarks = mutableSetOf<String>()
+        val minimumYDistance = 800 
+        val xTolerance = 30
+
+        for ((text, instances) in textGroups) {
+            // URL Scan: Fast filter out explicit site tags
+            if (text.contains(".com", true) || text.contains(".org", true) || text.contains("www.", true)) {
+                bannedWatermarks.add(text)
+                continue
+            }
+
+            // Tracking logic: Must register multiple matches down the stream
+            if (instances.size >= 3) {
+                val refX = instances[0].x
+                val xMatch = instances.all { Math.abs(it.x - refX) <= xTolerance }
+
+                if (xMatch) {
+                    var regularPattern = true
+                    for (i in 1 until instances.size) {
+                        val gap = instances[i].y - instances[i - 1].y
+                        if (gap < minimumYDistance) {
+                            regularPattern = false
+                            break
+                        }
+                    }
+                    if (regularPattern) {
+                        bannedWatermarks.add(text)
+                    }
+                }
+            }
+        }
+
+        return boxes.filter { !bannedWatermarks.contains(it.text) }.sortedBy { it.y }
     }
 
     private fun calculateIoU(b1: ParsedBox, b2: ParsedBox): Float {
