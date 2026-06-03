@@ -35,7 +35,6 @@ class MangaOcrEngine(
     private var dictionary: List<String> = emptyList()
     private var initError: String? = null
 
-    // Store model sizes to show on screen natively via Compose State
     var detModelSizeMb by mutableStateOf(0f)
         private set
     var recModelSizeMb by mutableStateOf(0f)
@@ -43,20 +42,21 @@ class MangaOcrEngine(
 
     data class TranslationResult(val translatedBlocks: List<String>)
 
+    // A structure to keep track of text boxes across long scrolling manga chapters
+    data class ParsedBox(
+        val x: Int, val y: Int, val w: Int, val h: Int,
+        val text: String, val localCenterY: Int
+    )
+
     init {
         try {
             ortEnv = OrtEnvironment.getEnvironment()
 
-            // 👇 HELPER FUNCTION: Safely streams uncompressed assets onto the physical disk storage
             fun getAssetFilePath(assetName: String): String {
                 val file = File(context.cacheDir, assetName)
-
-                // Clear out stale or truncated cache files to ensure integrity
                 if (file.exists()) {
                     file.delete()
                 }
-
-                // Safe streaming copy operation (low memory footprint)
                 context.assets.open(assetName).use { inputStream ->
                     file.outputStream().use { outputStream ->
                         inputStream.copyTo(outputStream)
@@ -65,17 +65,14 @@ class MangaOcrEngine(
                 return file.absolutePath
             }
 
-            // 1. Extract and Load Detection Model from absolute path string
             val detModelPath = getAssetFilePath("ch_PP-OCRv5_det_infer.onnx")
             detModelSizeMb = File(detModelPath).length() / 1024f / 1024f
             detSession = ortEnv?.createSession(detModelPath, OrtSession.SessionOptions())
 
-            // 2. Extract and Load Recognition Model from absolute path string
             val recModelPath = getAssetFilePath("ch_PP-OCRv5_rec_infer.onnx")
             recModelSizeMb = File(recModelPath).length() / 1024f / 1024f
             recSession = ortEnv?.createSession(recModelPath, OrtSession.SessionOptions())
 
-            // Dictionary asset is simple text metadata, keeping it in memory is perfectly fine
             dictionary = context.assets.open("ppocrv5_dict.txt").bufferedReader().readLines()
         } catch (e: Exception) {
             val details = buildString {
@@ -106,16 +103,13 @@ class MangaOcrEngine(
             val rec = recSession ?: return@withContext "Engine Error: Recognition session not initialized"
 
             val scaledBitmap = OcrUtils.downscaleImageForDetection(bitmap)
-            val floatBuffer = OcrUtils.bitmapToFloatBuffer(scaledBitmap)
-            val shape = longArrayOf(
-                1,
-                3,
-                scaledBitmap.height.toLong(),
-                scaledBitmap.width.toLong(),
-            )
+            val processedBitmap = OcrUtils.padToMultipleOf32(scaledBitmap) // Apply ONNX safe padding
+            
+            val floatBuffer = OcrUtils.bitmapToFloatBuffer(processedBitmap)
+            val shape = longArrayOf(1, 3, processedBitmap.height.toLong(), processedBitmap.width.toLong())
 
-            var detW = scaledBitmap.width
-            var detH = scaledBitmap.height
+            var detW = processedBitmap.width
+            var detH = processedBitmap.height
             var flatProbabilities = FloatArray(0)
 
             OnnxTensor.createTensor(env, floatBuffer, shape).use { tensor ->
@@ -151,12 +145,14 @@ class MangaOcrEngine(
             }
 
             if (flatProbabilities.isEmpty()) return@withContext "Failed to parse detection output."
-
-            val scaleX = bitmap.width.toFloat() / detW
-            val scaleY = bitmap.height.toFloat() / detH
+            
+            // Map scale based on the un-padded downscaled image vs original
+            val scaleX = bitmap.width.toFloat() / scaledBitmap.width
+            val scaleY = bitmap.height.toFloat() / scaledBitmap.height
+            
             val boxes = DbNetMath.extractBoundingBoxes(flatProbabilities, detW, detH)
             if (boxes.isEmpty()) return@withContext "No text found in this image."
-
+            
             val japaneseTextBlocks = mutableListOf<String>()
             val recInputName = rec.inputNames.firstOrNull()
                 ?: return@withContext "Engine Error: Recognition model input name missing"
@@ -168,16 +164,8 @@ class MangaOcrEngine(
                 }
 
                 val recHeight = 48
-                val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight)
-                    .toInt()
-                    .coerceAtLeast(1)
-
-                val recBitmap = Bitmap.createScaledBitmap(
-                    croppedBubble,
-                    recWidth,
-                    recHeight,
-                    true,
-                )
+                val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight).toInt().coerceAtLeast(1)
+                val recBitmap = Bitmap.createScaledBitmap(croppedBubble, recWidth, recHeight, true)
 
                 try {
                     val recBufferIn = OcrUtils.bitmapToFloatBuffer(recBitmap)
@@ -225,11 +213,11 @@ class MangaOcrEngine(
         context: Context,
         uris: List<Uri>,
     ): String = withContext(Dispatchers.IO) {
-        if (initError != null) {
-            return@withContext initError!!
-        }
+        if (initError != null) return@withContext initError!!
 
         val sb = StringBuilder()
+        var globalYOffset = 0 
+        val globalBoxes = mutableListOf<ParsedBox>()
 
         try {
             val env = ortEnv ?: return@withContext "Engine Error: ORT environment not initialized"
@@ -237,222 +225,133 @@ class MangaOcrEngine(
             val rec = recSession ?: return@withContext "Engine Error: Recognition session not initialized"
 
             uris.forEachIndexed { index, uri ->
-                val pageName = "PAGE_${index + 1}"
-                appendDebug(sb, "========================")
-                appendDebug(sb, "[$pageName]")
-                appendDebug(sb, "========================")
-
                 val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
                     BitmapFactory.decodeStream(stream)
-                }
+                } ?: return@forEachIndexed
 
-                if (bitmap == null) {
-                    appendDebug(sb, "Error: Failed to load picture into memory.")
-                    appendDebug(sb, "")
-                    return@forEachIndexed
-                }
+                // --- SLIDING WINDOW CONFIGURATION ---
+                val windowHeight = 1024
+                val overlap = 180 
+                var localYOffset = 0
 
-                appendDebug(sb, "Loaded bitmap: ${bitmap.width}x${bitmap.height}")
+                while (localYOffset < bitmap.height) {
+                    val endY = minOf(localYOffset + windowHeight, bitmap.height)
+                    val currentHeight = endY - localYOffset
+                    val slice = Bitmap.createBitmap(bitmap, 0, localYOffset, bitmap.width, currentHeight)
 
-                val sliceMaxHeight = 2048
-                var yOffset = 0
-                var blockCounter = 1
+                    val scaledSlice = OcrUtils.downscaleImageForDetection(slice)
+                    val processedSlice = OcrUtils.padToMultipleOf32(scaledSlice)
 
-                while (yOffset < bitmap.height) {
-                    val currentHeight = minOf(sliceMaxHeight, bitmap.height - yOffset)
-                    val slice = Bitmap.createBitmap(
-                        bitmap,
-                        0,
-                        yOffset,
-                        bitmap.width,
-                        currentHeight,
-                    )
+                    val floatBuffer = OcrUtils.bitmapToFloatBuffer(processedSlice)
+                    val shape = longArrayOf(1, 3, processedSlice.height.toLong(), processedSlice.width.toLong())
 
-                    try {
-                        appendDebug(
-                            sb,
-                            "Slice: yOffset=$yOffset height=$currentHeight size=${slice.width}x${slice.height}",
-                        )
+                    var detW = processedSlice.width
+                    var detH = processedSlice.height
+                    var flatProbabilities = FloatArray(0)
 
-                        val scaledSlice = OcrUtils.downscaleImageForDetection(slice)
-                        appendDebug(sb, "Scaled slice for detection: ${scaledSlice.width}x${scaledSlice.height}")
-
-                        val floatBuffer = OcrUtils.bitmapToFloatBuffer(scaledSlice)
-                        val shape = longArrayOf(
-                            1,
-                            3,
-                            scaledSlice.height.toLong(),
-                            scaledSlice.width.toLong(),
-                        )
-
-                        var detW = scaledSlice.width
-                        var detH = scaledSlice.height
-                        var flatProbabilities = FloatArray(0)
-
-                        OnnxTensor.createTensor(env, floatBuffer, shape).use { tensor ->
-                            val inputName = det.inputNames.firstOrNull()
-                            if (inputName == null) {
-                                appendDebug(sb, "Detection input name missing.")
-                                return@use
-                            }
-
-                            val detMap = Collections.singletonMap(inputName, tensor)
-                            det.run(detMap).use { results ->
-                                val detOutputTensor = results.iterator().next().value as? OnnxTensor
-                                if (detOutputTensor != null) {
-                                    @Suppress("UNCHECKED_CAST")
-                                    val rawDetArray = detOutputTensor.value as? Array<Array<Array<FloatArray>>>
-
-                                    if (rawDetArray != null && rawDetArray.isNotEmpty()) {
-                                        val batch = rawDetArray[0]
-                                        if (batch.isNotEmpty()) {
-                                            val channel = batch[0]
-                                            if (channel.isNotEmpty()) {
-                                                detH = channel.size
-                                                detW = channel[0].size
-                                                flatProbabilities = FloatArray(detW * detH)
-                                                var idx = 0
-                                                for (y in 0 until detH) {
-                                                    val row = channel[y]
-                                                    for (x in 0 until detW) {
-                                                        flatProbabilities[idx++] = row[x]
-                                                    }
-                                                }
-                                                appendDebug(
-                                                    sb,
-                                                    "Detection parsed: detW=$detW detH=$detH probs=${flatProbabilities.size}",
-                                                )
-                                            } else {
-                                                appendDebug(sb, "Detection parsed but channel was empty.")
+                    OnnxTensor.createTensor(env, floatBuffer, shape).use { tensor ->
+                        val inputName = det.inputNames.firstOrNull() ?: return@use
+                        val detMap = Collections.singletonMap(inputName, tensor)
+                        det.run(detMap).use { results ->
+                            val detOutputTensor = results.iterator().next().value as? OnnxTensor
+                            @Suppress("UNCHECKED_CAST")
+                            val rawDetArray = detOutputTensor?.value as? Array<Array<Array<FloatArray>>>
+                            if (rawDetArray != null && rawDetArray.isNotEmpty()) {
+                                val batch = rawDetArray[0]
+                                if (batch.isNotEmpty()) {
+                                    val channel = batch[0]
+                                    if (channel.isNotEmpty()) {
+                                        detH = channel.size
+                                        detW = channel[0].size
+                                        flatProbabilities = FloatArray(detW * detH)
+                                        var idx = 0
+                                        for (y in 0 until detH) {
+                                            val row = channel[y]
+                                            for (x in 0 until detW) {
+                                                flatProbabilities[idx++] = row[x]
                                             }
-                                        } else {
-                                            appendDebug(sb, "Detection parsed but batch was empty.")
                                         }
-                                    } else {
-                                        appendDebug(sb, "Detection output shape was unexpected.")
                                     }
-                                } else {
-                                    appendDebug(sb, "Detection output tensor was null.")
                                 }
                             }
                         }
+                    }
 
-                        if (flatProbabilities.isEmpty()) {
-                            appendDebug(sb, "Failed to parse detection output.")
-                            appendDebug(sb, "")
-                            yOffset += sliceMaxHeight
-                            continue
-                        }
-
+                    if (flatProbabilities.isNotEmpty()) {
                         val boxes = DbNetMath.extractBoundingBoxes(flatProbabilities, detW, detH)
-                        appendDebug(sb, "Boxes found: ${boxes.size}")
-
-                        if (boxes.isEmpty()) {
-                            appendDebug(sb, "No text found in this image.")
-                            appendDebug(sb, "")
-                            yOffset += sliceMaxHeight
-                            continue
-                        }
-
-                        val scaleX = slice.width.toFloat() / detW
-                        val scaleY = slice.height.toFloat() / detH
+                        val scaleX = slice.width.toFloat() / scaledSlice.width
+                        val scaleY = slice.height.toFloat() / scaledSlice.height
                         val recInputName = rec.inputNames.firstOrNull()
 
-                        if (recInputName == null) {
-                            appendDebug(sb, "Recognition input name missing.")
-                            appendDebug(sb, "")
-                            yOffset += sliceMaxHeight
-                            continue
-                        }
+                        if (recInputName != null && boxes.isNotEmpty()) {
+                            for (box in boxes) {
+                                val croppedBubble = OcrUtils.cropBubble(slice, box, scaleX, scaleY)
+                                if (croppedBubble.width <= 0 || croppedBubble.height <= 0) continue
 
-                        for ((boxIndex, box) in boxes.withIndex()) {
-                            appendDebug(sb, "Box $boxIndex: $box")
+                                val recHeight = 48
+                                val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight).toInt().coerceAtLeast(1)
+                                val recBitmap = Bitmap.createScaledBitmap(croppedBubble, recWidth, recHeight, true)
 
-                            val croppedBubble = OcrUtils.cropBubble(slice, box, scaleX, scaleY)
-                            appendDebug(sb, "Crop size: ${croppedBubble.width}x${croppedBubble.height}")
+                                try {
+                                    val recBufferIn = OcrUtils.bitmapToFloatBuffer(recBitmap)
+                                    val recShapeIn = longArrayOf(1, 3, recHeight.toLong(), recWidth.toLong())
 
-                            if (croppedBubble.width <= 0 || croppedBubble.height <= 0) {
-                                appendDebug(sb, "Skipping invalid crop.")
-                                continue
-                            }
-
-                            val recHeight = 48
-                            val recWidth = (croppedBubble.width.toFloat() / croppedBubble.height * recHeight)
-                                .toInt()
-                                .coerceAtLeast(1)
-
-                            val recBitmap = Bitmap.createScaledBitmap(
-                                croppedBubble,
-                                recWidth,
-                                recHeight,
-                                true,
-                            )
-
-                            try {
-                                val recBufferIn = OcrUtils.bitmapToFloatBuffer(recBitmap)
-                                val recShapeIn = longArrayOf(1, 3, recHeight.toLong(), recWidth.toLong())
-
-                                OnnxTensor.createTensor(env, recBufferIn, recShapeIn).use { recTensor ->
-                                    val recMap = Collections.singletonMap(recInputName, recTensor)
-                                    rec.run(recMap).use { recRes ->
-                                        val recOut = recRes.iterator().next().value as? OnnxTensor
-                                        if (recOut != null) {
+                                    OnnxTensor.createTensor(env, recBufferIn, recShapeIn).use { recTensor ->
+                                        val recMap = Collections.singletonMap(recInputName, recTensor)
+                                        rec.run(recMap).use { recRes ->
+                                            val recOut = recRes.iterator().next().value as? OnnxTensor
                                             @Suppress("UNCHECKED_CAST")
-                                            val rawRecArray = recOut.value as? Array<Array<FloatArray>>
+                                            val rawRecArray = recOut?.value as? Array<Array<FloatArray>>
                                             if (rawRecArray != null && rawRecArray.isNotEmpty()) {
                                                 val batch = rawRecArray[0]
                                                 if (batch.isNotEmpty()) {
                                                     val decodedText = decodeRecognitionArray(batch)
-                                                    appendDebug(sb, "Decoded: '$decodedText'")
-
+                                                    
                                                     if (decodedText.isNotBlank()) {
-                                                        val absY = (box.top * scaleY).toInt() + yOffset
+                                                        // Convert local bounds to Absolute Global Manga Bounds
                                                         val absX = (box.left * scaleX).toInt()
                                                         val w = ((box.right - box.left) * scaleX).toInt()
                                                         val h = ((box.bottom - box.top) * scaleY).toInt()
-
-                                                        appendDebug(
-                                                            sb,
-                                                            "[BLOCK:$blockCounter] {x: $absX, y: $absY, w: $w, h: $h}",
-                                                        )
-                                                        appendDebug(sb, decodedText)
-                                                        appendDebug(sb, "")
-                                                        blockCounter++
-                                                    } else {
-                                                        appendDebug(sb, "Recognition decoded blank text.")
-                                                        appendDebug(sb, "")
+                                                        
+                                                        val absY = (box.top * scaleY).toInt() + localYOffset + globalYOffset
+                                                        val localCenterY = (box.top + box.bottom) / 2
+                                                        
+                                                        globalBoxes.add(ParsedBox(absX, absY, w, h, decodedText, localCenterY))
                                                     }
-                                                } else {
-                                                    appendDebug(sb, "Recognition batch was empty.")
-                                                    appendDebug(sb, "")
                                                 }
-                                            } else {
-                                                appendDebug(sb, "Recognition output shape was unexpected.")
-                                                appendDebug(sb, "")
                                             }
-                                        } else {
-                                            appendDebug(sb, "Recognition output tensor was null.")
-                                            appendDebug(sb, "")
                                         }
                                     }
+                                } finally {
+                                    recBitmap.recycle()
                                 }
-                            } finally {
-                                recBitmap.recycle()
                             }
                         }
-                    } catch (e: Exception) {
-                        appendDebug(sb, "Slice error: ${e.message}")
-                        appendDebug(sb, "")
-                        Log.e(TAG, "Slice processing failed", e)
-                    } finally {
-                        slice.recycle()
                     }
 
-                    yOffset += sliceMaxHeight
+                    slice.recycle()
+                    localYOffset += (windowHeight - overlap)
                 }
 
+                globalYOffset += bitmap.height 
                 bitmap.recycle()
             }
+
+            // CLEANUP: Clean overlaps using Manga Vertical Layout rules
+            val cleanedBoxes = deduplicateBoxes(globalBoxes)
+            
+            appendDebug(sb, "========================")
+            appendDebug(sb, "MANGA CHAPTER PROCESSING COMPLETE")
+            appendDebug(sb, "Total Continuous Height processed: $globalYOffset px")
+            appendDebug(sb, "Total Unique Text Bubbles: ${cleanedBoxes.size}")
+            appendDebug(sb, "========================\n")
+
+            cleanedBoxes.forEachIndexed { i, box ->
+                appendDebug(sb, "[BUBBLE:${i+1}] {x: ${box.x}, y: ${box.y}, w: ${box.w}, h: ${box.h}}")
+                appendDebug(sb, box.text)
+                appendDebug(sb, "")
+            }
+
         } catch (e: Exception) {
             Log.e(TAG, "runLocalOcrTest crashed", e)
             sb.append("\n\nCRASH ERROR: ${e.message}")
@@ -460,6 +359,59 @@ class MangaOcrEngine(
 
         return@withContext sb.toString()
     }
+
+    // --- Deduplication & Overlap Handling ---
+
+    private fun deduplicateBoxes(boxes: List<ParsedBox>): List<ParsedBox> {
+        val result = mutableListOf<ParsedBox>()
+        val xTolerance = 15 // Manga X-Axis Strict Lock 
+
+        for (box in boxes) {
+            var isDuplicate = false
+            for (i in result.indices) {
+                val existing = result[i]
+                
+                // 1. Enforce strict horizontal column logic for manga
+                val isXAligned = Math.abs(box.x - existing.x) <= xTolerance && 
+                                 Math.abs(box.w - existing.w) <= xTolerance
+
+                // 2. If it aligns horizontally and overlaps vertically, it's a split duplicate!
+                if (isXAligned && calculateIoU(box, existing) > 0.3f) { 
+                    isDuplicate = true
+                    
+                    // Center-is-best logic: Keep the one furthest away from the slice cut lines
+                    val existingDist = Math.abs(existing.localCenterY - 512)
+                    val newDist = Math.abs(box.localCenterY - 512)
+                    if (newDist < existingDist) {
+                        result[i] = box 
+                    }
+                    break
+                }
+            }
+            if (!isDuplicate) {
+                result.add(box)
+            }
+        }
+        
+        // Sort everything top-to-bottom so translations read correctly in flow
+        return result.sortedBy { it.y } 
+    }
+
+    private fun calculateIoU(b1: ParsedBox, b2: ParsedBox): Float {
+        val left = maxOf(b1.x, b2.x)
+        val top = maxOf(b1.y, b2.y)
+        val right = minOf(b1.x + b1.w, b2.x + b2.w)
+        val bottom = minOf(b1.y + b1.h, b2.y + b2.h)
+
+        if (left < right && top < bottom) {
+            val intersection = (right - left) * (bottom - top)
+            val union = (b1.w * b1.h) + (b2.w * b2.h) - intersection
+            return intersection.toFloat() / union.toFloat()
+        }
+        return 0f
+    }
+
+    // --- Auxiliary Tools ---
 
     private fun decodeRecognitionArray(sequence: Array<FloatArray>): String {
         val sb = StringBuilder()
