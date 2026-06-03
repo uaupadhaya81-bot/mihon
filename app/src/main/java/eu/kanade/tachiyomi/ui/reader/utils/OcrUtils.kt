@@ -27,7 +27,7 @@ object OcrUtils {
 
     /**
      * CRITICAL FIX: Pads the image to the nearest multiple of 32 independently on both
-     * the width and height without warping the original text, preventing ONNX runtime crashes.
+     * the width and height without warping the original text to prevent ONNX runtime crashes.
      */
     fun padToMultipleOf32(bitmap: Bitmap): Bitmap {
         val w = bitmap.width
