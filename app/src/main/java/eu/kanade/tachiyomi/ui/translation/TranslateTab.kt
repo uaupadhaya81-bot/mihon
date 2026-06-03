@@ -87,7 +87,7 @@ object TranslateTab : CoreTab {
                     title = title,
                     icon = icon,
                 )
-             }
+            }
         }
 
     override suspend fun onReselect(navigator: Navigator) {}
@@ -206,7 +206,7 @@ object TranslateTab : CoreTab {
                     CircularProgressIndicator()
                 }
             } else if (chapters.isEmpty()) {
-                 Box(
+                Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -410,20 +410,26 @@ object TranslateTab : CoreTab {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
-                    
+
                     IconButton(
                         onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            val clipboard = context.getSystemService(
+                                Context.CLIPBOARD_SERVICE,
+                            ) as android.content.ClipboardManager
                             val clip = android.content.ClipData.newPlainText("OCR Log", ocrDiagnosticLog)
                             clipboard.setPrimaryClip(clip)
-                            android.widget.Toast.makeText(context, "Copied log!", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(
+                                context,
+                                "Copied log!",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
                         },
-                        modifier = Modifier.align(Alignment.TopEnd)
+                        modifier = Modifier.align(Alignment.TopEnd),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.ContentCopy,
                             contentDescription = "Copy Log",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }
