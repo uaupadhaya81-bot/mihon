@@ -20,16 +20,18 @@ import eu.kanade.tachiyomi.ui.reader.utils.DbNetMath
 import eu.kanade.tachiyomi.ui.reader.utils.OcrUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.FloatBuffer
 import java.util.Collections
 
 class MangaOcrEngine(
     private val context: Context,
     private val apiKey: String,
-) {
+) : AutoCloseable {
     private var ortEnv: OrtEnvironment? = null
     private var detSession: OrtSession? = null
     private var recSession: OrtSession? = null
@@ -58,12 +60,11 @@ class MangaOcrEngine(
 
             fun getAssetFilePath(assetName: String): String {
                 val file = File(context.cacheDir, assetName)
-                if (file.exists()) {
-                    file.delete()
-                }
-                context.assets.open(assetName).use { inputStream ->
-                    file.outputStream().use { outputStream ->
-                        inputStream.copyTo(outputStream)
+                if (!file.exists() || file.length() == 0L) {
+                    context.assets.open(assetName).use { inputStream ->
+                        file.outputStream().use { outputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
                     }
                 }
                 return file.absolutePath
@@ -124,29 +125,21 @@ class MangaOcrEngine(
                 det.run(detMap).use { results ->
                     val detOutputTensor = results.iterator().next().value as? OnnxTensor
                     if (detOutputTensor != null) {
-                        @Suppress("UNCHECKED_CAST")
-                        val rawDetArray = detOutputTensor.value as? Array<Array<Array<FloatArray>>>
-                        if (rawDetArray != null && rawDetArray.isNotEmpty()) {
-                            val batch = rawDetArray[0]
-                            if (batch.isNotEmpty()) {
-                                val channel = batch[0]
-                                if (channel.isNotEmpty()) {
-                                    detH = channel.size
-                                    detW = channel[0].size
-                                    flatProbabilities = FloatArray(detW * detH)
-                                    var idx = 0
-                                    for (y in 0 until detH) {
-                                        val row = channel[y]
-                                        for (x in 0 until detW) {
-                                            flatProbabilities[idx++] = row[x]
-                                        }
-                                    }
-                                }
-                            }
+                        // 🔥 OPTIMIZED: Direct Native FloatBuffer Extraction to bypass JVM Array unboxing 🔥
+                        val outShape = detOutputTensor.info.shape
+                        if (outShape.size >= 2) {
+                            detH = outShape[outShape.size - 2].toInt()
+                            detW = outShape[outShape.size - 1].toInt()
+                            flatProbabilities = FloatArray(detW * detH)
+                            detOutputTensor.floatBuffer.get(flatProbabilities)
                         }
                     }
                 }
             }
+
+            // Cleanup Pre-processing Bitmaps (Native Memory Leak Defense)
+            if (processedBitmap != scaledBitmap && processedBitmap != bitmap) processedBitmap.recycle()
+            if (scaledBitmap != bitmap) scaledBitmap.recycle()
 
             if (flatProbabilities.isEmpty()) return@withContext "Failed to parse detection output."
             val scaleX = bitmap.width.toFloat() / scaledBitmap.width
@@ -183,9 +176,7 @@ class MangaOcrEngine(
                                     if (batch.isNotEmpty()) {
                                         val (decodedText, confidence) = decodeRecognitionArray(batch)
 
-                                        // 🔥 GARBAGE DEFENSE LAYER 2: CONFIDENCE SCORE FILTER 🔥
                                         if (decodedText.isNotBlank() && confidence > 0.60f) {
-                                            // 🔥 GARBAGE DEFENSE LAYER 3: TEXT DENSITY VOID FILTER 🔥
                                             val w = ((box.right - box.left) * scaleX).toInt()
                                             val h = ((box.bottom - box.top) * scaleY).toInt()
                                             val areaPerChar = (w * h) / decodedText.length
@@ -200,7 +191,9 @@ class MangaOcrEngine(
                         }
                     }
                 } finally {
+                    // 🔥 OPTIMIZED: Native Memory Leak Defense 🔥
                     recBitmap.recycle()
+                    if (croppedBubble != bitmap) croppedBubble.recycle()
                 }
             }
 
@@ -241,7 +234,6 @@ class MangaOcrEngine(
                 val hasCarryOver = carryOver != null
                 val carryOverH = if (hasCarryOver) carryOver!!.height else 0
 
-                // UNIFIED LAYER: If previous page cut text, physically stitch it here
                 val activeBitmap = if (hasCarryOver) {
                     val stitched = Bitmap.createBitmap(
                         rawBitmap.width,
@@ -263,7 +255,6 @@ class MangaOcrEngine(
                 var localYOffset = 0
 
                 while (localYOffset < activeBitmap.height) {
-                    // Save remaining pixel slice if window oversteps the bounds
                     if (localYOffset + windowHeight > activeBitmap.height) {
                         val remaining = activeBitmap.height - localYOffset
                         if (index < uris.size - 1) {
@@ -296,25 +287,14 @@ class MangaOcrEngine(
                         val detMap = Collections.singletonMap(inputName, tensor)
                         det.run(detMap).use { results ->
                             val detOutputTensor = results.iterator().next().value as? OnnxTensor
-
-                            @Suppress("UNCHECKED_CAST")
-                            val rawDetArray = detOutputTensor?.value as? Array<Array<Array<FloatArray>>>
-                            if (rawDetArray != null && rawDetArray.isNotEmpty()) {
-                                val batch = rawDetArray[0]
-                                if (batch.isNotEmpty()) {
-                                    val channel = batch[0]
-                                    if (channel.isNotEmpty()) {
-                                        detH = channel.size
-                                        detW = channel[0].size
-                                        flatProbabilities = FloatArray(detW * detH)
-                                        var idx = 0
-                                        for (y in 0 until detH) {
-                                            val row = channel[y]
-                                            for (x in 0 until detW) {
-                                                flatProbabilities[idx++] = row[x]
-                                            }
-                                        }
-                                    }
+                            if (detOutputTensor != null) {
+                                // 🔥 OPTIMIZED: Direct Native FloatBuffer Extraction 🔥
+                                val outShape = detOutputTensor.info.shape
+                                if (outShape.size >= 2) {
+                                    detH = outShape[outShape.size - 2].toInt()
+                                    detW = outShape[outShape.size - 1].toInt()
+                                    flatProbabilities = FloatArray(detW * detH)
+                                    detOutputTensor.floatBuffer.get(flatProbabilities)
                                 }
                             }
                         }
@@ -359,33 +339,22 @@ class MangaOcrEngine(
                                                 if (batch.isNotEmpty()) {
                                                     val (decodedText, confidence) = decodeRecognitionArray(batch)
 
-                                                    // 🔥 GARBAGE DEFENSE LAYER 2: CONFIDENCE SCORE FILTER 🔥
                                                     if (decodedText.isNotBlank() && confidence > 0.60f) {
                                                         val absX = (box.left * scaleX).toInt()
                                                         val w = ((box.right - box.left) * scaleX).toInt()
                                                         val h = ((box.bottom - box.top) * scaleY).toInt()
 
-                                                        // 🔥 GARBAGE DEFENSE LAYER 3: TEXT DENSITY VOID FILTER 🔥
                                                         val areaPerChar = (w * h) / decodedText.length
                                                         if (decodedText.length <= 2 && areaPerChar > 3500) {
                                                             continue
                                                         }
 
-                                                        // GLOBAL REMAP MATH: Accounts for pre-stitched canvas shift
                                                         val absY = (box.top * scaleY).toInt() +
                                                             localYOffset + globalYOffset - carryOverH
-
                                                         val localCenterY = (box.top + box.bottom) / 2
 
                                                         globalBoxes.add(
-                                                            ParsedBox(
-                                                                absX,
-                                                                absY,
-                                                                w,
-                                                                h,
-                                                                decodedText,
-                                                                localCenterY,
-                                                            ),
+                                                            ParsedBox(absX, absY, w, h, decodedText, localCenterY),
                                                         )
                                                     }
                                                 }
@@ -393,13 +362,19 @@ class MangaOcrEngine(
                                         }
                                     }
                                 } finally {
+                                    // 🔥 OPTIMIZED: Native Memory Leak Defense 🔥
                                     recBitmap.recycle()
+                                    if (croppedBubble != slice) croppedBubble.recycle()
                                 }
                             }
                         }
                     }
 
+                    // 🔥 OPTIMIZED: Chunk Level Memory Leak Defense 🔥
+                    if (processedSlice != scaledSlice && processedSlice != slice) processedSlice.recycle()
+                    if (scaledSlice != slice) scaledSlice.recycle()
                     slice.recycle()
+                    
                     localYOffset += (windowHeight - overlap)
                 }
 
@@ -408,11 +383,8 @@ class MangaOcrEngine(
                 rawBitmap.recycle()
             }
 
-            // CLEANUP: Enforce horizontal column lock, text quality, and your repeat tracking rule
             val deduplicated = deduplicateBoxes(globalBoxes)
             val cleanedBoxes = removeRepeatingWatermarks(deduplicated)
-
-            // 🔥 NEW: MERGE THE LINES INTO FULL BUBBLES 🔥
             val finalMergedBubbles = groupTextBubbles(cleanedBoxes)
 
             appendDebug(sb, "========================")
@@ -434,8 +406,6 @@ class MangaOcrEngine(
         return@withContext sb.toString()
     }
 
-    // --- Deduplication & Overlap Handling ---
-
     private fun deduplicateBoxes(boxes: List<ParsedBox>): List<ParsedBox> {
         val result = mutableListOf<ParsedBox>()
         val xTolerance = 15
@@ -450,7 +420,6 @@ class MangaOcrEngine(
 
                 if (xAligned && wAligned && calculateIoU(box, existing) > 0.3f) {
                     isDuplicate = true
-
                     val existingDist = Math.abs(existing.localCenterY - 512)
                     val newDist = Math.abs(box.localCenterY - 512)
                     if (newDist < existingDist) {
@@ -463,26 +432,20 @@ class MangaOcrEngine(
                 result.add(box)
             }
         }
-
         return result
     }
 
-    /**
-     * LOGO DEFENSE PIPELINE: URL FAST TRACK + FUZZY PATTERN LOCATOR
-     * Tracks elements separated horizontally with substantial vertical gaps.
-     */
     private fun removeRepeatingWatermarks(boxes: List<ParsedBox>): List<ParsedBox> {
         val bannedWatermarks = mutableSetOf<String>()
         val minimumYDistance = 800
         val xTolerance = 30
 
-        // Logo Defense Layer 1: URL Fast Strip + Brand Hard Filter
         for (box in boxes) {
             val txt = box.text
             if (txt.contains(".com", true) ||
                 txt.contains(".org", true) ||
                 txt.contains("www.", true) ||
-                txt.contains("菠萝包", true) // 🔥 Hard-bans typo variants of the main watermark brand
+                txt.contains("菠萝包", true) 
             ) {
                 bannedWatermarks.add(txt)
             }
@@ -494,19 +457,15 @@ class MangaOcrEngine(
         for (text in uniqueTexts) {
             if (watermarkClusters.contains(text) || bannedWatermarks.contains(text)) continue
 
-            // Logo Defense Layer 3 (Upgrade): Group text strings within an 80% error tolerance limit
             val instances = boxes.filter {
                 it.text == text || calculateSimilarity(it.text, text) >= 0.80f
             }.sortedBy { it.y }
 
-            // Logo Defense Layer 2: Spatial Layout Mapping Pattern Rule
             if (instances.size >= 3) {
-                // Find a subset of instances where at least 3 items align closely on X
                 val alignedInstances = instances.filter { target ->
                     instances.count { Math.abs(it.x - target.x) <= xTolerance } >= 3
                 }
 
-                // If we found a valid, vertically repeating column layout
                 if (alignedInstances.size >= 3) {
                     var regularPattern = true
                     for (i in 1 until alignedInstances.size) {
@@ -517,14 +476,12 @@ class MangaOcrEngine(
                         }
                     }
                     if (regularPattern) {
-                        // Ban all slight variations of this logo stamp across the chapter stream
                         alignedInstances.forEach { bannedWatermarks.add(it.text) }
                         watermarkClusters.add(text)
                     }
                 }
             }
         }
-
         return boxes.filter { !bannedWatermarks.contains(it.text) }.sortedBy { it.y }
     }
 
@@ -543,8 +500,8 @@ class MangaOcrEngine(
     }
 
     /**
-     * Self-contained edit distance helper to implement string similarity limits
-     * without introducing external dependency naming conflicts.
+     * 🔥 OPTIMIZED: High-performance 1D Levenshtein Distance
+     * Eliminated 2D Array matrix creation to prevent GC Thrashing during deduplication.
      */
     private fun calculateSimilarity(s1: String, s2: String): Float {
         if (s1 == s2) return 1.0f
@@ -552,57 +509,46 @@ class MangaOcrEngine(
         val len2 = s2.length
         if (len1 == 0 || len2 == 0) return 0.0f
 
-        val dp = Array(len1 + 1) { IntArray(len2 + 1) }
-        for (i in 0..len1) dp[i][0] = i
-        for (j in 0..len2) dp[0][j] = j
+        var v0 = IntArray(len2 + 1) { it }
+        var v1 = IntArray(len2 + 1)
 
-        for (i in 1..len1) {
-            for (j in 1..len2) {
-                val cost = if (s1[i - 1] == s2[j - 1]) 0 else 1
-                dp[i][j] = minOf(
-                    dp[i - 1][j] + 1,
-                    dp[i][j - 1] + 1,
-                    dp[i - 1][j - 1] + cost,
+        for (i in 0 until len1) {
+            v1[0] = i + 1
+            for (j in 0 until len2) {
+                val cost = if (s1[i] == s2[j]) 0 else 1
+                v1[j + 1] = minOf(
+                    v1[j] + 1,
+                    v0[j + 1] + 1,
+                    v0[j] + cost
                 )
             }
+            val temp = v0
+            v0 = v1
+            v1 = temp
         }
-        return 1.0f - (dp[len1][len2].toFloat() / maxOf(len1, len2))
+        return 1.0f - (v0[len2].toFloat() / maxOf(len1, len2))
     }
 
-    // --- Auxiliary Tools ---
-
-    /**
-     * BUBBLE MERGING LOGIC
-     * Glues individual lines of text back together into full speech bubbles
-     * based on their physical distance from each other on the page.
-     */
     private fun groupTextBubbles(boxes: List<ParsedBox>): List<ParsedBox> {
         if (boxes.isEmpty()) return emptyList()
 
         val groups = mutableListOf<MutableList<ParsedBox>>()
-
-        // Distance Thresholds: How close boxes must be to merge (in pixels)
         val expandX = 60
         val expandY = 70
 
         for (box in boxes) {
             var foundGroup = false
-
-            // Create a magnetic zone around the current text box
             val boxLeft = box.x - expandX
             val boxTop = box.y - expandY
             val boxRight = box.x + box.w + expandX
             val boxBottom = box.y + box.h + expandY
 
             for (group in groups) {
-                // Check if this box's magnetic zone overlaps with any box already in the group
                 val intersects = group.any { gBox ->
                     val gLeft = gBox.x
                     val gTop = gBox.y
                     val gRight = gBox.x + gBox.w
                     val gBottom = gBox.y + gBox.h
-
-                    // Simple rectangle intersection math
                     boxLeft < gRight && boxRight > gLeft && boxTop < gBottom && boxBottom > gTop
                 }
 
@@ -618,18 +564,14 @@ class MangaOcrEngine(
             }
         }
 
-        // Combine the grouped lines into single massive paragraph boxes!
         val mergedBoxes = mutableListOf<ParsedBox>()
         for (group in groups) {
-            // Sort lines top-to-bottom so the sentence reads correctly
             val sortedGroup = group.sortedBy { it.y }
-
             val minX = sortedGroup.minOf { it.x }
             val minY = sortedGroup.minOf { it.y }
             val maxX = sortedGroup.maxOf { it.x + it.w }
             val maxY = sortedGroup.maxOf { it.y + it.h }
 
-            // Glue the text strings together
             val mergedText = sortedGroup.joinToString("") { it.text }
             val center = (minY + maxY) / 2
 
@@ -639,10 +581,6 @@ class MangaOcrEngine(
         return mergedBoxes.sortedBy { it.y }
     }
 
-    /**
-     * Decodes the raw float array into a String AND calculates the AI's average confidence.
-     * Returns a Pair: (Decoded Text, Average Confidence Score 0.0 to 1.0)
-     */
     private fun decodeRecognitionArray(sequence: Array<FloatArray>): Pair<String, Float> {
         val sb = StringBuilder()
         var lastIndex = -1
@@ -697,8 +635,15 @@ class MangaOcrEngine(
             connection.setRequestProperty("Content-Type", "application/json")
             connection.doOutput = true
 
-            val cleanPrompt = prompt.replace("\n", "\\n").replace("\"", "\\\"")
-            val jsonPayload = "{\"contents\": [{\"parts\": [{\"text\": \"$cleanPrompt\"}]}]}"
+            val jsonPayload = JSONObject().apply {
+                put("contents", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().put("text", prompt))
+                        })
+                    })
+                })
+            }.toString()
 
             connection.outputStream.use { os ->
                 os.write(jsonPayload.toByteArray(Charsets.UTF_8))
@@ -718,7 +663,6 @@ class MangaOcrEngine(
                     }
                 }
             }
-
             "API Error: ${connection.responseCode}"
         } catch (e: Exception) {
             Log.e(TAG, "sendToGemini failed", e)
@@ -732,6 +676,12 @@ class MangaOcrEngine(
         val resultMap = mutableMapOf<Int, TranslationResult>()
         resultMap[0] = TranslationResult(listOf("Chapter Mode Ready!"))
         return@withContext resultMap
+    }
+
+    override fun close() {
+        runCatching { detSession?.close() }
+        runCatching { recSession?.close() }
+        runCatching { ortEnv?.close() }
     }
 
     companion object {
@@ -750,8 +700,15 @@ class MangaOcrEngine(
                 connection.setRequestProperty("Content-Type", "application/json")
                 connection.doOutput = true
 
-                val cleanPrompt = message.replace("\n", "\\n").replace("\"", "\\\"")
-                val jsonPayload = "{\"contents\": [{\"parts\": [{\"text\": \"$cleanPrompt\"}]}]}"
+                val jsonPayload = JSONObject().apply {
+                    put("contents", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("parts", JSONArray().apply {
+                                put(JSONObject().put("text", message))
+                            })
+                        })
+                    })
+                }.toString()
 
                 connection.outputStream.use { os ->
                     os.write(jsonPayload.toByteArray(Charsets.UTF_8))
@@ -771,7 +728,6 @@ class MangaOcrEngine(
                         }
                     }
                 }
-
                 "API Error: ${connection.responseCode}"
             } catch (e: Exception) {
                 Log.e(TAG, "testGeminiAPI failed", e)
