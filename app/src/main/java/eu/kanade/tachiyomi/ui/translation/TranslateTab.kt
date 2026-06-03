@@ -1,12 +1,8 @@
 package eu.kanade.tachiyomi.ui.translation
 
-import android.widget.Toast
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material3.IconButton
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import android.content.Context
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Pending
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
@@ -36,6 +33,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -55,13 +53,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.navigator.Navigator
 import cafe.adriel.voyager.navigator.tab.TabOptions
 import com.hippo.unifile.UniFile
+import eu.kanade.presentation.util.Tab as CoreTab
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.reader.MangaOcrEngine
 import kotlinx.coroutines.Dispatchers
@@ -69,7 +70,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import eu.kanade.presentation.util.Tab as CoreTab
 
 data class DownloadedChapterInfo(
     val mangaTitle: String,
@@ -337,6 +337,7 @@ object TranslateTab : CoreTab {
     fun OcrDiagnosticSection() {
         val context = LocalContext.current
         val scope = rememberCoroutineScope()
+        val clipboardManager = LocalClipboardManager.current
 
         var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
         var ocrDiagnosticLog by remember {
@@ -403,14 +404,35 @@ object TranslateTab : CoreTab {
                     CircularProgressIndicator()
                 }
             } else {
-                Text(
-                    text = ocrDiagnosticLog,
+                Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
+                    Text(
+                        text = ocrDiagnosticLog,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(end = 48.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    
+                    IconButton(
+                        onClick = {
+                            clipboardManager.setText(AnnotatedString(ocrDiagnosticLog))
+                            Toast.makeText(context, "Log copied to clipboard", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.align(Alignment.TopEnd)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.ContentCopy,
+                            contentDescription = "Copy log",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
             }
         }
     }
