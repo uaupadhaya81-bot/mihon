@@ -494,13 +494,16 @@ class MangaOcrEngine(
 
             // Logo Defense Layer 2: Spatial Layout Mapping Pattern Rule
             if (instances.size >= 3) {
-                val refX = instances[0].x
-                val xMatch = instances.all { Math.abs(it.x - refX) <= xTolerance }
+                // FIX: Find a subset of instances where at least 3 items align closely on X
+                val alignedInstances = instances.filter { target ->
+                    instances.count { Math.abs(it.x - target.x) <= xTolerance } >= 3
+                }
 
-                if (xMatch) {
+                // If we found a valid, vertically repeating column layout
+                if (alignedInstances.size >= 3) {
                     var regularPattern = true
-                    for (i in 1 until instances.size) {
-                        val gap = instances[i].y - instances[i - 1].y
+                    for (i in 1 until alignedInstances.size) {
+                        val gap = alignedInstances[i].y - alignedInstances[i - 1].y
                         if (gap < minimumYDistance) {
                             regularPattern = false
                             break
@@ -508,7 +511,7 @@ class MangaOcrEngine(
                     }
                     if (regularPattern) {
                         // Ban all slight variations of this logo stamp across the chapter stream
-                        instances.forEach { bannedWatermarks.add(it.text) }
+                        alignedInstances.forEach { bannedWatermarks.add(it.text) }
                         watermarkClusters.add(text)
                     }
                 }
