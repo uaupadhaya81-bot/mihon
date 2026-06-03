@@ -24,8 +24,10 @@ object DbNetMath {
                 // If we haven't checked this pixel, and the AI thinks it's text
                 if (!visited[index] && probabilityGrid[index] > threshold) {
                     val box = traceContourBFS(probabilityGrid, visited, x, y, width, height, threshold)
-                    // Filter out tiny dots that are just noise
-                    if (box.width() > 5 && box.height() > 5) {
+                    
+                    // 🔥 INCREASED MINIMUM SIZE FILTER 🔥
+                    // Ignores compression noise, screentones, and microscopic artifacts
+                    if (box.width() > 16 && box.height() > 16) {
                         boxes.add(box)
                     }
                 }
