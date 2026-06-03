@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.ui.reader.utils
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Rect
 import java.nio.FloatBuffer
 
@@ -21,6 +23,27 @@ object OcrUtils {
         val newHeight = (height * scale).toInt()
 
         return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+    }
+
+    /**
+     * CRITICAL FIX: Pads the image to the nearest multiple of 32 independently on both
+     * the width and height without warping the original text, preventing ONNX runtime crashes.
+     */
+    fun padToMultipleOf32(bitmap: Bitmap): Bitmap {
+        val w = bitmap.width
+        val h = bitmap.height
+
+        val targetW = (Math.ceil(w / 32.0) * 32).toInt()
+        val targetH = (Math.ceil(h / 32.0) * 32).toInt()
+
+        if (w == targetW && h == targetH) return bitmap
+
+        val paddedBitmap = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(paddedBitmap)
+        canvas.drawColor(Color.BLACK)
+        canvas.drawBitmap(bitmap, 0f, 0f, null)
+
+        return paddedBitmap
     }
 
     /**
@@ -57,7 +80,6 @@ object OcrUtils {
      * Physically crops the original high-res image using the math coordinates.
      */
     fun cropBubble(originalBitmap: Bitmap, box: Rect, scaleX: Float, scaleY: Float): Bitmap {
-        // Map the small detection box coordinates back to the original massive image
         val left = (box.left * scaleX).toInt().coerceAtLeast(0)
         val top = (box.top * scaleY).toInt().coerceAtLeast(0)
         val right = (box.right * scaleX).toInt().coerceAtMost(originalBitmap.width)
@@ -66,7 +88,7 @@ object OcrUtils {
         val width = right - left
         val height = bottom - top
 
-        if (width <= 0 || height <= 0) return originalBitmap // Failsafe
+        if (width <= 0 || height <= 0) return originalBitmap 
 
         return Bitmap.createBitmap(originalBitmap, left, top, width, height)
     }
