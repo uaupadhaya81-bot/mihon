@@ -50,7 +50,7 @@ object OcrUtils {
      * Converts standard Android image pixels into a mathematical FloatBuffer
      * normalized between 0.0 and 1.0 (The format ONNX models read).
      *
-     * UPGRADED: Includes a High-Contrast Thresholding layer. It mathematically sharpens 
+     * UPGRADED: Includes a High-Contrast Thresholding layer. It mathematically sharpens
      * faded anti-aliased text strokes to pure black and washes out noise to pure white.
      */
     fun bitmapToFloatBuffer(bitmap: Bitmap, applyContrastBoost: Boolean = true): FloatBuffer {
