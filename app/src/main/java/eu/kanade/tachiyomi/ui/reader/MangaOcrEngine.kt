@@ -182,8 +182,17 @@ class MangaOcrEngine(
                                     val batch = rawRecArray[0]
                                     if (batch.isNotEmpty()) {
                                         val (decodedText, confidence) = decodeRecognitionArray(batch)
-                                        // 🔥 CONFIDENCE FILTER APPLIED HERE 🔥
+                                        
+                                        // 🔥 GARBAGE DEFENSE LAYER 2: CONFIDENCE SCORE FILTER 🔥
                                         if (decodedText.isNotBlank() && confidence > 0.60f) {
+                                            
+                                            // 🔥 GARBAGE DEFENSE LAYER 3: TEXT DENSITY VOID FILTER 🔥
+                                            val w = ((box.right - box.left) * scaleX).toInt()
+                                            val h = ((box.bottom - box.top) * scaleY).toInt()
+                                            val areaPerChar = (w * h) / decodedText.length
+                                            if (decodedText.length <= 2 && areaPerChar > 3500) {
+                                                continue
+                                            }
                                             japaneseTextBlocks.add(decodedText)
                                         }
                                     }
@@ -351,11 +360,17 @@ class MangaOcrEngine(
                                                 if (batch.isNotEmpty()) {
                                                     val (decodedText, confidence) = decodeRecognitionArray(batch)
 
-                                                    // 🔥 CONFIDENCE FILTER APPLIED HERE 🔥
+                                                    // 🔥 GARBAGE DEFENSE LAYER 2: CONFIDENCE SCORE FILTER 🔥
                                                     if (decodedText.isNotBlank() && confidence > 0.60f) {
                                                         val absX = (box.left * scaleX).toInt()
                                                         val w = ((box.right - box.left) * scaleX).toInt()
                                                         val h = ((box.bottom - box.top) * scaleY).toInt()
+
+                                                        // 🔥 GARBAGE DEFENSE LAYER 3: TEXT DENSITY VOID FILTER 🔥
+                                                        val areaPerChar = (w * h) / decodedText.length
+                                                        if (decodedText.length <= 2 && areaPerChar > 3500) {
+                                                            continue
+                                                        }
 
                                                         // GLOBAL REMAP MATH: Accounts for pre-stitched canvas shift
                                                         val absY = (box.top * scaleY).toInt() +
@@ -451,23 +466,34 @@ class MangaOcrEngine(
     }
 
     /**
-     * YOUR WATERMARK TRACKER + URL HEURISTICS
-     * Looks for exact matching strings aligned horizontally with substantial vertical gaps.
+     * LOGO DEFENSE PIPELINE: URL FAST TRACK + FUZZY PATTERN LOCATOR
+     * Tracks elements separated horizontally with substantial vertical gaps.
      */
     private fun removeRepeatingWatermarks(boxes: List<ParsedBox>): List<ParsedBox> {
-        val textGroups = boxes.groupBy { it.text }
         val bannedWatermarks = mutableSetOf<String>()
         val minimumYDistance = 800
         val xTolerance = 30
 
-        for ((text, instances) in textGroups) {
-            // URL Scan: Fast filter out explicit site tags
-            if (text.contains(".com", true) || text.contains(".org", true) || text.contains("www.", true)) {
-                bannedWatermarks.add(text)
-                continue
+        // Logo Defense Layer 1: URL Fast Strip
+        for (box in boxes) {
+            val txt = box.text
+            if (txt.contains(".com", true) || txt.contains(".org", true) || txt.contains("www.", true)) {
+                bannedWatermarks.add(txt)
             }
+        }
 
-            // Tracking logic: Must register multiple matches down the stream
+        val uniqueTexts = boxes.map { it.text }.distinct()
+        val watermarkClusters = mutableSetOf<String>()
+
+        for (text in uniqueTexts) {
+            if (watermarkClusters.contains(text) || bannedWatermarks.contains(text)) continue
+
+            // Logo Defense Layer 3 (Upgrade): Group text strings within an 80% error tolerance limit
+            val instances = boxes.filter {
+                it.text == text || calculateSimilarity(it.text, text) >= 0.80f
+            }.sortedBy { it.y }
+
+            // Logo Defense Layer 2: Spatial Layout Mapping Pattern Rule
             if (instances.size >= 3) {
                 val refX = instances[0].x
                 val xMatch = instances.all { Math.abs(it.x - refX) <= xTolerance }
@@ -482,7 +508,9 @@ class MangaOcrEngine(
                         }
                     }
                     if (regularPattern) {
-                        bannedWatermarks.add(text)
+                        // Ban all slight variations of this logo stamp across the chapter stream
+                        instances.forEach { bannedWatermarks.add(it.text) }
+                        watermarkClusters.add(text)
                     }
                 }
             }
@@ -503,6 +531,33 @@ class MangaOcrEngine(
             return intersection.toFloat() / union.toFloat()
         }
         return 0f
+    }
+
+    /**
+     * Self-contained edit distance helper to implement string similarity limits
+     * without introducing external dependency naming conflicts.
+     */
+    private fun calculateSimilarity(s1: String, s2: String): Float {
+        if (s1 == s2) return 1.0f
+        val len1 = s1.length
+        val len2 = s2.length
+        if (len1 == 0 || len2 == 0) return 0.0f
+
+        val dp = Array(len1 + 1) { IntArray(len2 + 1) }
+        for (i in 0..len1) dp[i][0] = i
+        for (j in 0..len2) dp[0][j] = j
+
+        for (i in 1..len1) {
+            for (j in 1..len2) {
+                val cost = if (s1[i - 1] == s2[j - 1]) 0 else 1
+                dp[i][j] = minOf(
+                    dp[i - 1][j] + 1,
+                    dp[i][j - 1] + 1,
+                    dp[i - 1][j - 1] + cost
+                )
+            }
+        }
+        return 1.0f - (dp[len1][len2].toFloat() / maxOf(len1, len2))
     }
 
     // --- Auxiliary Tools ---
