@@ -479,8 +479,8 @@ class MangaOcrEngine(
         // Logo Defense Layer 1: URL Fast Strip + Brand Hard Filter
         for (box in boxes) {
             val txt = box.text
-            if (txt.contains(".com", true) || 
-                txt.contains(".org", true) || 
+            if (txt.contains(".com", true) ||
+                txt.contains(".org", true) ||
                 txt.contains("www.", true) ||
                 txt.contains("菠萝包", true) // 🔥 Hard-bans typo variants of the main watermark brand
             ) {
@@ -573,21 +573,21 @@ class MangaOcrEngine(
 
     /**
      * BUBBLE MERGING LOGIC
-     * Glues individual lines of text back together into full speech bubbles 
+     * Glues individual lines of text back together into full speech bubbles
      * based on their physical distance from each other on the page.
      */
     private fun groupTextBubbles(boxes: List<ParsedBox>): List<ParsedBox> {
         if (boxes.isEmpty()) return emptyList()
 
         val groups = mutableListOf<MutableList<ParsedBox>>()
-        
+
         // Distance Thresholds: How close boxes must be to merge (in pixels)
-        val expandX = 60 
-        val expandY = 70 
+        val expandX = 60
+        val expandY = 70
 
         for (box in boxes) {
             var foundGroup = false
-            
+
             // Create a magnetic zone around the current text box
             val boxLeft = box.x - expandX
             val boxTop = box.y - expandY
@@ -601,7 +601,7 @@ class MangaOcrEngine(
                     val gTop = gBox.y
                     val gRight = gBox.x + gBox.w
                     val gBottom = gBox.y + gBox.h
-                    
+
                     // Simple rectangle intersection math
                     boxLeft < gRight && boxRight > gLeft && boxTop < gBottom && boxBottom > gTop
                 }
@@ -623,16 +623,16 @@ class MangaOcrEngine(
         for (group in groups) {
             // Sort lines top-to-bottom so the sentence reads correctly
             val sortedGroup = group.sortedBy { it.y }
-            
+
             val minX = sortedGroup.minOf { it.x }
             val minY = sortedGroup.minOf { it.y }
             val maxX = sortedGroup.maxOf { it.x + it.w }
             val maxY = sortedGroup.maxOf { it.y + it.h }
-            
+
             // Glue the text strings together
             val mergedText = sortedGroup.joinToString("") { it.text }
             val center = (minY + maxY) / 2
-            
+
             mergedBoxes.add(ParsedBox(minX, minY, maxX - minX, maxY - minY, mergedText, center))
         }
 
