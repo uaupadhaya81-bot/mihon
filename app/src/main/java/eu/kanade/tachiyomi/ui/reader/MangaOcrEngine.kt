@@ -50,12 +50,12 @@ class MangaOcrEngine(
             // 👇 HELPER FUNCTION: Safely streams uncompressed assets onto the physical disk storage
             fun getAssetFilePath(assetName: String): String {
                 val file = File(context.cacheDir, assetName)
-                
+
                 // Clear out stale or truncated cache files to ensure integrity
                 if (file.exists()) {
                     file.delete()
                 }
-                
+
                 // Safe streaming copy operation (low memory footprint)
                 context.assets.open(assetName).use { inputStream ->
                     file.outputStream().use { outputStream ->
@@ -77,7 +77,6 @@ class MangaOcrEngine(
 
             // Dictionary asset is simple text metadata, keeping it in memory is perfectly fine
             dictionary = context.assets.open("ppocrv5_dict.txt").bufferedReader().readLines()
-            
         } catch (e: Exception) {
             val details = buildString {
                 appendLine("MangaOcrEngine init failed")
