@@ -47,15 +47,37 @@ class MangaOcrEngine(
         try {
             ortEnv = OrtEnvironment.getEnvironment()
 
-            val detModelBytes = context.assets.open("ch_PP-OCRv5_det_infer.ort").use { it.readBytes() }
-            detModelSizeMb = detModelBytes.size / 1024f / 1024f
-            detSession = ortEnv?.createSession(detModelBytes, OrtSession.SessionOptions())
+            // 👇 HELPER FUNCTION: Safely streams uncompressed assets onto the physical disk storage
+            fun getAssetFilePath(assetName: String): String {
+                val file = File(context.cacheDir, assetName)
+                
+                // Clear out stale or truncated cache files to ensure integrity
+                if (file.exists()) {
+                    file.delete()
+                }
+                
+                // Safe streaming copy operation (low memory footprint)
+                context.assets.open(assetName).use { inputStream ->
+                    file.outputStream().use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+                return file.absolutePath
+            }
 
-            val recModelBytes = context.assets.open("ch_PP-OCRv5_rec_infer.ort").use { it.readBytes() }
-            recModelSizeMb = recModelBytes.size / 1024f / 1024f
-            recSession = ortEnv?.createSession(recModelBytes, OrtSession.SessionOptions())
+            // 1. Extract and Load Detection Model from absolute path string
+            val detModelPath = getAssetFilePath("ch_PP-OCRv5_det_infer.ort")
+            detModelSizeMb = File(detModelPath).length() / 1024f / 1024f
+            detSession = ortEnv?.createSession(detModelPath, OrtSession.SessionOptions())
 
+            // 2. Extract and Load Recognition Model from absolute path string
+            val recModelPath = getAssetFilePath("ch_PP-OCRv5_rec_infer.ort")
+            recModelSizeMb = File(recModelPath).length() / 1024f / 1024f
+            recSession = ortEnv?.createSession(recModelPath, OrtSession.SessionOptions())
+
+            // Dictionary asset is simple text metadata, keeping it in memory is perfectly fine
             dictionary = context.assets.open("ppocrv5_dict.txt").bufferedReader().readLines()
+            
         } catch (e: Exception) {
             val details = buildString {
                 appendLine("MangaOcrEngine init failed")
