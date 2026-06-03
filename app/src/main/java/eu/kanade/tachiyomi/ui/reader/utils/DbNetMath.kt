@@ -39,6 +39,9 @@ object DbNetMath {
     /**
      * Breadth-First Search (BFS) algorithm to expand outwards from a text pixel
      * to find the outer limits (left, top, right, bottom) of the whole text bubble.
+     *
+     * OPTIMIZED: Avoids allocating thousands of temporary Pair objects on the heap.
+     * Packing coordinates (X, Y) into a single primitive 32-bit integer keeps GC cycles at zero.
      */
     private fun traceContourBFS(
         grid: FloatArray,
@@ -54,8 +57,9 @@ object DbNetMath {
         var minY = startY
         var maxY = startY
 
-        val queue = ArrayDeque<Pair<Int, Int>>()
-        queue.add(Pair(startX, startY))
+        val queue = ArrayDeque<Int>()
+        // Pack (startX, startY) into a single Int: High 16 bits = X, Low 16 bits = Y
+        queue.add((startX shl 16) or startY)
         visited[startY * width + startX] = true
 
         // Check neighboring pixels
@@ -63,7 +67,10 @@ object DbNetMath {
         val dy = intArrayOf(0, 0, -1, 1, -1, 1, -1, 1)
 
         while (queue.isNotEmpty()) {
-            val (cx, cy) = queue.removeFirst()
+            val packed = queue.removeFirst()
+            // Unpack using fast bit shifts
+            val cx = packed ushr 16
+            val cy = packed and 0xFFFF
 
             for (i in 0..7) {
                 val nx = cx + dx[i]
@@ -73,7 +80,7 @@ object DbNetMath {
                     val nIndex = ny * width + nx
                     if (!visited[nIndex] && grid[nIndex] > threshold) {
                         visited[nIndex] = true
-                        queue.add(Pair(nx, ny))
+                        queue.add((nx shl 16) or ny)
 
                         // Push the boundaries of our box outwards
                         if (nx < minX) minX = nx
