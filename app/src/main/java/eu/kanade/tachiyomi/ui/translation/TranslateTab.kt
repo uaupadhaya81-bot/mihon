@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Pending
 import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.AlertDialog
@@ -31,6 +32,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -85,7 +87,7 @@ object TranslateTab : CoreTab {
                     title = title,
                     icon = icon,
                 )
-            }
+             }
         }
 
     override suspend fun onReselect(navigator: Navigator) {}
@@ -204,7 +206,7 @@ object TranslateTab : CoreTab {
                     CircularProgressIndicator()
                 }
             } else if (chapters.isEmpty()) {
-                Box(
+                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -375,7 +377,7 @@ object TranslateTab : CoreTab {
             Button(
                 onClick = {
                     isRunning = true
-                    ocrDiagnosticLog = "Processing ${selectedUris.size} items. Please wait..."
+                    ocrDiagnosticLog = "Processing ${selectedUris.size} items.\nPlease wait..."
                     scope.launch {
                         val engine = MangaOcrEngine(context, "")
                         ocrDiagnosticLog = engine.runLocalOcrTest(context, selectedUris)
@@ -398,14 +400,33 @@ object TranslateTab : CoreTab {
                     CircularProgressIndicator()
                 }
             } else {
-                Text(
-                    text = ocrDiagnosticLog,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+                Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+                    Text(
+                        text = ocrDiagnosticLog,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(end = 40.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    
+                    IconButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            val clip = android.content.ClipData.newPlainText("OCR Log", ocrDiagnosticLog)
+                            clipboard.setPrimaryClip(clip)
+                            android.widget.Toast.makeText(context, "Copied log!", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.align(Alignment.TopEnd)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.ContentCopy,
+                            contentDescription = "Copy Log",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
             }
         }
     }
