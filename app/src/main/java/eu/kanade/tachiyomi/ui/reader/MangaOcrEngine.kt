@@ -182,10 +182,9 @@ class MangaOcrEngine(
                                     val batch = rawRecArray[0]
                                     if (batch.isNotEmpty()) {
                                         val (decodedText, confidence) = decodeRecognitionArray(batch)
-                                        
+
                                         // 🔥 GARBAGE DEFENSE LAYER 2: CONFIDENCE SCORE FILTER 🔥
                                         if (decodedText.isNotBlank() && confidence > 0.60f) {
-                                            
                                             // 🔥 GARBAGE DEFENSE LAYER 3: TEXT DENSITY VOID FILTER 🔥
                                             val w = ((box.right - box.left) * scaleX).toInt()
                                             val h = ((box.bottom - box.top) * scaleY).toInt()
@@ -553,7 +552,7 @@ class MangaOcrEngine(
                 dp[i][j] = minOf(
                     dp[i - 1][j] + 1,
                     dp[i][j - 1] + 1,
-                    dp[i - 1][j - 1] + cost
+                    dp[i - 1][j - 1] + cost,
                 )
             }
         }
