@@ -88,7 +88,7 @@ object OcrUtils {
         val width = right - left
         val height = bottom - top
 
-        if (width <= 0 || height <= 0) return originalBitmap
+        if (width <= 0 || height <= 0) return originalBitmap 
 
         return Bitmap.createBitmap(originalBitmap, left, top, width, height)
     }
