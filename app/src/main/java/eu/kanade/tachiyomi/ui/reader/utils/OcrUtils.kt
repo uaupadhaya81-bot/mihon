@@ -51,7 +51,7 @@ object OcrUtils {
      * normalized between 0.0 and 1.0 (The format ONNX models read).
      *
      * OPTIMIZED: Uses a smooth mathematical Cubic S-curve (Smoothstep) to boost contrast.
-     * This sharpens stylized text blocks (like logos) without fracturing or splitting 
+     * This sharpens stylized text blocks (like logos) without fracturing or splitting
      * standard font characters (like turning '吧' into '0巴').
      */
     fun bitmapToFloatBuffer(bitmap: Bitmap, applyContrastBoost: Boolean = true): FloatBuffer {
