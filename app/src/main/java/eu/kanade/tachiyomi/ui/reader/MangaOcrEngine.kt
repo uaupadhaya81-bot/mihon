@@ -155,7 +155,7 @@ class MangaOcrEngine(
                 val croppedBubble = OcrUtils.cropBubble(bitmap, box, scaleX, scaleY)
                 if (croppedBubble.width <= 0 || croppedBubble.height <= 0) continue
 
-                val recHeight = 64
+                val recHeight = 48
                 val ratio = croppedBubble.width.toFloat() / croppedBubble.height
                 val recWidth = (ratio * recHeight).toInt().coerceAtLeast(1)
                 val recBitmap = Bitmap.createScaledBitmap(croppedBubble, recWidth, recHeight, true)
@@ -311,7 +311,7 @@ class MangaOcrEngine(
                                 val croppedBubble = OcrUtils.cropBubble(slice, box, scaleX, scaleY)
                                 if (croppedBubble.width <= 0 || croppedBubble.height <= 0) continue
 
-                                val recHeight = 64
+                                val recHeight = 48
                                 val ratio = croppedBubble.width.toFloat() / croppedBubble.height
                                 val recWidth = (ratio * recHeight).toInt().coerceAtLeast(1)
 
