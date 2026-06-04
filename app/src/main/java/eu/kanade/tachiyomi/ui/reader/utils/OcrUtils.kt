@@ -50,8 +50,9 @@ object OcrUtils {
      * Converts standard Android image pixels into a mathematical FloatBuffer
      * normalized between 0.0 and 1.0 (The format ONNX models read).
      *
-     * UPGRADED: Includes a High-Contrast Thresholding layer. It mathematically sharpens
-     * faded anti-aliased text strokes to pure black and washes out noise to pure white.
+     * OPTIMIZED: Uses a smooth mathematical Cubic S-curve (Smoothstep) to boost contrast.
+     * This sharpens stylized text blocks (like logos) without fracturing or splitting 
+     * standard font characters (like turning '吧' into '0巴').
      */
     fun bitmapToFloatBuffer(bitmap: Bitmap, applyContrastBoost: Boolean = true): FloatBuffer {
         val width = bitmap.width
@@ -68,8 +69,8 @@ object OcrUtils {
             val pixel = pixels[i]
             var r = ((pixel shr 16) and 0xFF) / 255.0f
             if (applyContrastBoost) {
-                // High-Contrast S-Curve: Deepens dark text strokes, brightens whites
-                r = if (r < 0.5f) r * 0.4f else minOf(1.0f, r * 1.4f)
+                // Smooth Cubic S-Curve: f(x) = 3x^2 - 2x^3
+                r = r * r * (3.0f - 2.0f * r)
             }
             floatBuffer.put(r)
         }
@@ -79,7 +80,7 @@ object OcrUtils {
             val pixel = pixels[i]
             var g = ((pixel shr 8) and 0xFF) / 255.0f
             if (applyContrastBoost) {
-                g = if (g < 0.5f) g * 0.4f else minOf(1.0f, g * 1.4f)
+                g = g * g * (3.0f - 2.0f * g)
             }
             floatBuffer.put(g)
         }
@@ -89,7 +90,7 @@ object OcrUtils {
             val pixel = pixels[i]
             var b = (pixel and 0xFF) / 255.0f
             if (applyContrastBoost) {
-                b = if (b < 0.5f) b * 0.4f else minOf(1.0f, b * 1.4f)
+                b = b * b * (3.0f - 2.0f * b)
             }
             floatBuffer.put(b)
         }
