@@ -125,7 +125,6 @@ class MangaOcrEngine(
                 det.run(detMap).use { results ->
                     val detOutputTensor = results.iterator().next().value as? OnnxTensor
                     if (detOutputTensor != null) {
-                        // 🔥 OPTIMIZED: Direct Native FloatBuffer Extraction to bypass JVM Array unboxing 🔥
                         val outShape = detOutputTensor.info.shape
                         if (outShape.size >= 2) {
                             detH = outShape[outShape.size - 2].toInt()
@@ -137,7 +136,6 @@ class MangaOcrEngine(
                 }
             }
 
-            // Cleanup Pre-processing Bitmaps (Native Memory Leak Defense)
             if (processedBitmap != scaledBitmap && processedBitmap != bitmap) processedBitmap.recycle()
             if (scaledBitmap != bitmap) scaledBitmap.recycle()
 
@@ -191,7 +189,6 @@ class MangaOcrEngine(
                         }
                     }
                 } finally {
-                    // 🔥 OPTIMIZED: Native Memory Leak Defense 🔥
                     recBitmap.recycle()
                     if (croppedBubble != bitmap) croppedBubble.recycle()
                 }
@@ -288,7 +285,6 @@ class MangaOcrEngine(
                         det.run(detMap).use { results ->
                             val detOutputTensor = results.iterator().next().value as? OnnxTensor
                             if (detOutputTensor != null) {
-                                // 🔥 OPTIMIZED: Direct Native FloatBuffer Extraction 🔥
                                 val outShape = detOutputTensor.info.shape
                                 if (outShape.size >= 2) {
                                     detH = outShape[outShape.size - 2].toInt()
@@ -362,7 +358,6 @@ class MangaOcrEngine(
                                         }
                                     }
                                 } finally {
-                                    // 🔥 OPTIMIZED: Native Memory Leak Defense 🔥
                                     recBitmap.recycle()
                                     if (croppedBubble != slice) croppedBubble.recycle()
                                 }
@@ -370,11 +365,10 @@ class MangaOcrEngine(
                         }
                     }
 
-                    // 🔥 OPTIMIZED: Chunk Level Memory Leak Defense 🔥
                     if (processedSlice != scaledSlice && processedSlice != slice) processedSlice.recycle()
                     if (scaledSlice != slice) scaledSlice.recycle()
                     slice.recycle()
-
+                    
                     localYOffset += (windowHeight - overlap)
                 }
 
@@ -445,7 +439,7 @@ class MangaOcrEngine(
             if (txt.contains(".com", true) ||
                 txt.contains(".org", true) ||
                 txt.contains("www.", true) ||
-                txt.contains("菠萝包", true)
+                txt.contains("菠萝包", true) 
             ) {
                 bannedWatermarks.add(txt)
             }
@@ -500,8 +494,8 @@ class MangaOcrEngine(
     }
 
     /**
-     * 🔥 OPTIMIZED: High-performance 1D Levenshtein Distance
-     * Eliminated 2D Array matrix creation to prevent GC Thrashing during deduplication.
+     * 🔥 OPTIMIZED: High-performance 1D Levenshtein Distance row swap.
+     * Prevents Garbage Collector thrashing when filtering repeating watermark strings.
      */
     private fun calculateSimilarity(s1: String, s2: String): Float {
         if (s1 == s2) return 1.0f
@@ -519,7 +513,7 @@ class MangaOcrEngine(
                 v1[j + 1] = minOf(
                     v1[j] + 1,
                     v0[j + 1] + 1,
-                    v0[j] + cost,
+                    v0[j] + cost
                 )
             }
             val temp = v0
@@ -636,21 +630,13 @@ class MangaOcrEngine(
             connection.doOutput = true
 
             val jsonPayload = JSONObject().apply {
-                put(
-                    "contents",
-                    JSONArray().apply {
-                        put(
-                            JSONObject().apply {
-                                put(
-                                    "parts",
-                                    JSONArray().apply {
-                                        put(JSONObject().put("text", prompt))
-                                    },
-                                )
-                            },
-                        )
-                    },
-                )
+                put("contents", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().put("text", prompt))
+                        })
+                    })
+                })
             }.toString()
 
             connection.outputStream.use { os ->
@@ -709,21 +695,13 @@ class MangaOcrEngine(
                 connection.doOutput = true
 
                 val jsonPayload = JSONObject().apply {
-                    put(
-                        "contents",
-                        JSONArray().apply {
-                            put(
-                                JSONObject().apply {
-                                    put(
-                                        "parts",
-                                        JSONArray().apply {
-                                            put(JSONObject().put("text", message))
-                                        },
-                                    )
-                                },
-                            )
-                        },
-                    )
+                    put("contents", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("parts", JSONArray().apply {
+                                put(JSONObject().put("text", message))
+                            })
+                        })
+                    })
                 }.toString()
 
                 connection.outputStream.use { os ->
