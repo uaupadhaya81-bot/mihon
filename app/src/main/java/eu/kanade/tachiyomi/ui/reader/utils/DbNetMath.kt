@@ -26,7 +26,6 @@ object DbNetMath {
                     val box = traceContourBFS(probabilityGrid, visited, x, y, width, height, threshold)
 
                     // 🔥 GARBAGE DEFENSE LAYER 1: MINIMUM SIZE FILTER 🔥
-                    // Ignores compression noise, screentones, and microscopic artifacts
                     if (box.width() > 16 && box.height() > 16) {
                         boxes.add(box)
                     }
@@ -62,13 +61,11 @@ object DbNetMath {
         queue.add((startX shl 16) or startY)
         visited[startY * width + startX] = true
 
-        // Check neighboring pixels
         val dx = intArrayOf(-1, 1, 0, 0, -1, -1, 1, 1)
         val dy = intArrayOf(0, 0, -1, 1, -1, 1, -1, 1)
 
         while (queue.isNotEmpty()) {
             val packed = queue.removeFirst()
-            // Unpack using fast bit shifts
             val cx = packed ushr 16
             val cy = packed and 0xFFFF
 
@@ -82,7 +79,6 @@ object DbNetMath {
                         visited[nIndex] = true
                         queue.add((nx shl 16) or ny)
 
-                        // Push the boundaries of our box outwards
                         if (nx < minX) minX = nx
                         if (nx > maxX) maxX = nx
                         if (ny < minY) minY = ny
@@ -92,13 +88,12 @@ object DbNetMath {
             }
         }
 
-        // Add a small padding to ensure we don't cut off character edges
         val padding = 5
         return Rect(
             (minX - padding).coerceAtLeast(0),
             (minY - padding).coerceAtLeast(0),
             (maxX + padding).coerceAtMost(width - 1),
-            (maxY + padding).coerceAtMost(height - 1),
+            (maxY + padding).coerceAtMost(height - 1)
         )
     }
 }
