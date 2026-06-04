@@ -27,7 +27,7 @@ object OcrUtils {
 
     /**
      * Pads the image to the nearest multiple of 32 independently on both
-     * the width and height without warping the original text.
+     * the width and height without warping the original text to prevent ONNX runtime crashes.
      */
     fun padToMultipleOf32(bitmap: Bitmap): Bitmap {
         val w = bitmap.width
@@ -48,13 +48,12 @@ object OcrUtils {
 
     /**
      * Converts standard Android image pixels into a mathematical FloatBuffer
-     * normalized between 0.0 and 1.0 (The format ONNX models read).
+     * normalized linearly between 0.0 and 1.0 (The exact format ONNX models expect).
      *
-     * OPTIMIZED: Uses a smooth mathematical Cubic S-curve (Smoothstep) to boost contrast.
-     * This sharpens stylized text blocks (like logos) without fracturing or splitting
-     * standard font characters (like turning '吧' into '0巴').
+     * PEAK ACCURACY DESIGN: Completely un-warped. Preserves natural edge anti-aliasing
+     * gradients to maximize recognition accuracy on complex characters.
      */
-    fun bitmapToFloatBuffer(bitmap: Bitmap, applyContrastBoost: Boolean = true): FloatBuffer {
+    fun bitmapToFloatBuffer(bitmap: Bitmap): FloatBuffer {
         val width = bitmap.width
         val height = bitmap.height
         val floatBuffer = FloatBuffer.allocate(1 * 3 * height * width)
@@ -64,35 +63,19 @@ object OcrUtils {
 
         val totalPixels = width * height
 
-        // Pass 1: Red Channel
+        // Pass 1: Red Channel (Pure, fast linear extraction)
         for (i in 0 until totalPixels) {
-            val pixel = pixels[i]
-            var r = ((pixel shr 16) and 0xFF) / 255.0f
-            if (applyContrastBoost) {
-                // Smooth Cubic S-Curve: f(x) = 3x^2 - 2x^3
-                r = r * r * (3.0f - 2.0f * r)
-            }
-            floatBuffer.put(r)
+            floatBuffer.put(((pixels[i] shr 16) and 0xFF) / 255.0f)
         }
 
         // Pass 2: Green Channel
         for (i in 0 until totalPixels) {
-            val pixel = pixels[i]
-            var g = ((pixel shr 8) and 0xFF) / 255.0f
-            if (applyContrastBoost) {
-                g = g * g * (3.0f - 2.0f * g)
-            }
-            floatBuffer.put(g)
+            floatBuffer.put(((pixels[i] shr 8) and 0xFF) / 255.0f)
         }
 
         // Pass 3: Blue Channel
         for (i in 0 until totalPixels) {
-            val pixel = pixels[i]
-            var b = (pixel and 0xFF) / 255.0f
-            if (applyContrastBoost) {
-                b = b * b * (3.0f - 2.0f * b)
-            }
-            floatBuffer.put(b)
+            floatBuffer.put((pixels[i] and 0xFF) / 255.0f)
         }
 
         floatBuffer.rewind()
