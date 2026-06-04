@@ -93,7 +93,7 @@ object DbNetMath {
             (minX - padding).coerceAtLeast(0),
             (minY - padding).coerceAtLeast(0),
             (maxX + padding).coerceAtMost(width - 1),
-            (maxY + padding).coerceAtMost(height - 1)
+            (maxY + padding).coerceAtMost(height - 1),
         )
     }
 }

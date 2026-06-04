@@ -368,7 +368,7 @@ class MangaOcrEngine(
                     if (processedSlice != scaledSlice && processedSlice != slice) processedSlice.recycle()
                     if (scaledSlice != slice) scaledSlice.recycle()
                     slice.recycle()
-                    
+
                     localYOffset += (windowHeight - overlap)
                 }
 
@@ -439,7 +439,7 @@ class MangaOcrEngine(
             if (txt.contains(".com", true) ||
                 txt.contains(".org", true) ||
                 txt.contains("www.", true) ||
-                txt.contains("菠萝包", true) 
+                txt.contains("菠萝包", true)
             ) {
                 bannedWatermarks.add(txt)
             }
@@ -513,7 +513,7 @@ class MangaOcrEngine(
                 v1[j + 1] = minOf(
                     v1[j] + 1,
                     v0[j + 1] + 1,
-                    v0[j] + cost
+                    v0[j] + cost,
                 )
             }
             val temp = v0
@@ -630,13 +630,21 @@ class MangaOcrEngine(
             connection.doOutput = true
 
             val jsonPayload = JSONObject().apply {
-                put("contents", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("parts", JSONArray().apply {
-                            put(JSONObject().put("text", prompt))
-                        })
-                    })
-                })
+                put(
+                    "contents",
+                    JSONArray().apply {
+                        put(
+                            JSONObject().apply {
+                                put(
+                                    "parts",
+                                    JSONArray().apply {
+                                        put(JSONObject().put("text", prompt))
+                                    },
+                                )
+                            },
+                        )
+                    },
+                )
             }.toString()
 
             connection.outputStream.use { os ->
@@ -695,13 +703,21 @@ class MangaOcrEngine(
                 connection.doOutput = true
 
                 val jsonPayload = JSONObject().apply {
-                    put("contents", JSONArray().apply {
-                        put(JSONObject().apply {
-                            put("parts", JSONArray().apply {
-                                put(JSONObject().put("text", message))
-                            })
-                        })
-                    })
+                    put(
+                        "contents",
+                        JSONArray().apply {
+                            put(
+                                JSONObject().apply {
+                                    put(
+                                        "parts",
+                                        JSONArray().apply {
+                                            put(JSONObject().put("text", message))
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                    )
                 }.toString()
 
                 connection.outputStream.use { os ->
